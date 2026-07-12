@@ -26,6 +26,7 @@ tasks-from:
     - android-stuff.yml
     - ios.yml
     - linux.yml
+    - linux-qt.yml
     - linux-base-toolchains.yml
     - macosx.yml
     - macosx-native.yml

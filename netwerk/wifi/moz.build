@@ -49,13 +49,23 @@ elif CONFIG["OS_ARCH"] == "SunOS":
         "solaris",
     ]
 elif CONFIG["NECKO_WIFI_DBUS"]:
-    UNIFIED_SOURCES += [
-        "dbus/DbusWifiScanner.cpp",
-    ]
     LOCAL_INCLUDES += [
         "dbus",
     ]
-    CXXFLAGS += CONFIG["MOZ_GTK3_CFLAGS"]
+    if CONFIG["MOZ_WIDGET_TOOLKIT"] == "qt":
+        # QtDBus system bus → NetworkManager (no GIO).
+        SOURCES += [
+            "dbus/QtDbusWifiScanner.cpp",
+        ]
+        CXXFLAGS += CONFIG["MOZ_QT6_CFLAGS"]
+        # Qt headers conflict with -fvisibility=hidden wrappers.
+        NoVisibilityFlags()
+    else:
+        # GTK path: GIO GDBus.
+        UNIFIED_SOURCES += [
+            "dbus/DbusWifiScanner.cpp",
+        ]
+        CXXFLAGS += CONFIG["MOZ_GTK3_CFLAGS"]
 
 TEST_DIRS += ["gtest"]
 

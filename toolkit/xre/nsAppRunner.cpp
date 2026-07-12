@@ -265,9 +265,9 @@
 
 #ifdef MOZ_WIDGET_GTK
 #  include "nsAppShell.h"
-#endif
-#ifdef MOZ_ENABLE_DBUS
-#  include "DBusService.h"
+#  ifdef MOZ_ENABLE_DBUS
+#    include "DBusService.h"
+#  endif
 #endif
 
 extern void InstallSignalHandlers(const char* ProgramName);
@@ -1601,6 +1601,12 @@ nsXULAppInfo::GetChromeColorSchemeIsDark(bool* aResult) {
 NS_IMETHODIMP
 nsXULAppInfo::GetNativeMenubar(bool* aResult) {
   *aResult = !!LookAndFeel::GetInt(LookAndFeel::IntID::NativeMenubar);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetDialogPrimaryButtonOnLeft(bool* aResult) {
+  *aResult = LookAndFeel::DialogPrimaryButtonOnLeft();
   return NS_OK;
 }
 
@@ -4604,7 +4610,8 @@ int XREMain::XRE_mainInit(bool* aExitFlag) {
   }
 
   if (gfxPlatform::IsHeadless()) {
-#if defined(XP_WIN) || defined(MOZ_WIDGET_GTK) || defined(XP_MACOSX)
+#if defined(XP_WIN) || defined(MOZ_WIDGET_GTK) || defined(XP_MACOSX) || \
+    defined(MOZ_WIDGET_QT)
     printf_stderr("*** You are running in headless mode.\n");
 #else
     Output(
@@ -4998,7 +5005,7 @@ int XREMain::XRE_mainInit(bool* aExitFlag) {
     return 0;
   }
 
-#ifdef MOZ_ENABLE_DBUS
+#if defined(MOZ_ENABLE_DBUS) && defined(MOZ_WIDGET_GTK)
   const char* dbusServiceLauncher = nullptr;
   ar = CheckArg("dbus-service", &dbusServiceLauncher, CheckArgFlag::None);
   if (ar == ARG_BAD) {
@@ -5015,11 +5022,9 @@ int XREMain::XRE_mainInit(bool* aExitFlag) {
     return 0;
   }
 
-#  ifdef MOZ_WIDGET_GTK
   if (XRE_IsParentProcess()) {
     widget::RegisterHostApp();
   }
-#  endif
 #endif
 
   rv = XRE_InitCommandLine(gArgc, gArgv);

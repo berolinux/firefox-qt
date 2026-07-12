@@ -25573,6 +25573,8 @@ interface nsIXULRuntime extends nsISupports, Enums<typeof nsIXULRuntime_Experime
   readonly restartedByOS: boolean;
   /** <!-- binding_to(idl, attribute, XPIDL_nsIXULRuntime_nativeMenubar) --> */
   readonly nativeMenubar: boolean;
+  /** <!-- binding_to(idl, attribute, XPIDL_nsIXULRuntime_dialogPrimaryButtonOnLeft) --> */
+  readonly dialogPrimaryButtonOnLeft: boolean;
   /** <!-- binding_to(idl, attribute, XPIDL_nsIXULRuntime_chromeColorSchemeIsDark) --> */
   readonly chromeColorSchemeIsDark: boolean;
   /** <!-- binding_to(idl, attribute, XPIDL_nsIXULRuntime_contentThemeDerivedColorSchemeIsDark) --> */

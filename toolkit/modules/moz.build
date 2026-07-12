@@ -248,7 +248,7 @@ EXTRA_JS_MODULES.sessionstore += [
 
 EXTRA_JS_MODULES.third_party.fathom += ["third_party/fathom/fathom.mjs"]
 
-if CONFIG["MOZ_WIDGET_TOOLKIT"] in ("windows", "gtk", "cocoa"):
+if CONFIG["MOZ_WIDGET_TOOLKIT"] in ("windows", "gtk", "cocoa", "qt"):
     DEFINES["HAVE_SHELL_SERVICE_BOOL"] = "true"
 else:
     DEFINES["HAVE_SHELL_SERVICE_BOOL"] = "false"

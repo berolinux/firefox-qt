@@ -8,11 +8,19 @@
 
 #include "nsOSHelperAppService.h"
 #include "nsMIMEInfoUnix.h"
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
 #  include "nsGNOMERegistry.h"
+#endif
+#ifdef MOZ_WIDGET_GTK
 #  ifdef MOZ_BUILD_APP_IS_BROWSER
 #    include "nsIToolkitShellService.h"
 #    include "nsIGNOMEShellService.h"
+#  endif
+#endif
+#ifdef MOZ_WIDGET_QT
+#  ifdef MOZ_BUILD_APP_IS_BROWSER
+#    include "nsIToolkitShellService.h"
+#    include "nsIUnixShellService.h"
 #  endif
 #endif
 #include "nsISupports.h"
@@ -1096,8 +1104,8 @@ nsresult nsOSHelperAppService::OSProtocolHandlerExists(
   nsresult rv = NS_OK;
 
   if (!XRE_IsContentProcess()) {
-#ifdef MOZ_WIDGET_GTK
-    // Check the GNOME registry for a protocol handler
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
+    // FreeDesktop handlers via GIO (GTK) or unixdesktop (Qt).
     *aHandlerExists = nsGNOMERegistry::HandlerExists(aProtocolScheme);
 #else
     *aHandlerExists = false;
@@ -1117,7 +1125,7 @@ nsresult nsOSHelperAppService::OSProtocolHandlerExists(
 
 NS_IMETHODIMP nsOSHelperAppService::GetApplicationDescription(
     const nsACString& aScheme, nsAString& _retval) {
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   nsGNOMERegistry::GetAppDescForScheme(aScheme, _retval);
   return _retval.IsEmpty() ? NS_ERROR_NOT_AVAILABLE : NS_OK;
 #else
@@ -1130,6 +1138,11 @@ NS_IMETHODIMP nsOSHelperAppService::IsCurrentAppOSDefaultForProtocol(
   *_retval = false;
 #if defined(MOZ_BUILD_APP_IS_BROWSER) && defined(MOZ_WIDGET_GTK)
   if (nsCOMPtr<nsIGNOMEShellService> shell =
+          do_GetService(NS_TOOLKITSHELLSERVICE_CONTRACTID)) {
+    return shell->IsDefaultForScheme(aScheme, _retval);
+  }
+#elif defined(MOZ_BUILD_APP_IS_BROWSER) && defined(MOZ_WIDGET_QT)
+  if (nsCOMPtr<nsIUnixShellService> shell =
           do_GetService(NS_TOOLKITSHELLSERVICE_CONTRACTID)) {
     return shell->IsDefaultForScheme(aScheme, _retval);
   }
@@ -1218,12 +1231,12 @@ already_AddRefed<nsMIMEInfoBase> nsOSHelperAppService::GetFromExtension(
                                minorType, mime_types_description, true);
 
   if (NS_FAILED(rv) || majorType.IsEmpty()) {
-#ifdef MOZ_WIDGET_GTK
-    LOG("Looking in GNOME registry\n");
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
+    LOG("Looking in FreeDesktop registry\n");
     RefPtr<nsMIMEInfoBase> gnomeInfo =
         nsGNOMERegistry::GetFromExtension(aFileExt);
     if (gnomeInfo) {
-      LOG("Got MIMEInfo from GNOME registry\n");
+      LOG("Got MIMEInfo from FreeDesktop registry\n");
       return gnomeInfo.forget();
     }
 #endif
@@ -1332,12 +1345,12 @@ already_AddRefed<nsMIMEInfoBase> nsOSHelperAppService::GetFromType(
   LookUpExtensionsAndDescription(majorType, minorType, extensions,
                                  mime_types_description);
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   if (handler.IsEmpty()) {
     RefPtr<nsMIMEInfoBase> gnomeInfo = nsGNOMERegistry::GetFromType(aMIMEType);
     if (gnomeInfo) {
-      LOG("Got MIMEInfo from GNOME registry without extensions; setting them "
-          "to %s\n",
+      LOG("Got MIMEInfo from FreeDesktop registry without extensions; setting "
+          "them to %s\n",
           NS_LossyConvertUTF16toASCII(extensions).get());
 
       NS_ASSERTION(!gnomeInfo->HasExtensions(), "How'd that happen?");

@@ -68,7 +68,7 @@ class nsXREDirProvider final : public nsIDirectoryServiceProvider2,
 
   static nsresult GetUserDataDirectory(nsIFile** aFile, bool aLocal);
 
-#if defined(MOZ_WIDGET_GTK)
+#if defined(MOZ_WIDGET_LINUX_DESKTOP)
   static nsresult GetLegacyOrXDGEnvValue(const char* aHomeDir,
                                          const char* aEnvName,
                                          nsCString aSubdir, nsIFile** aFile,
@@ -93,7 +93,7 @@ class nsXREDirProvider final : public nsIDirectoryServiceProvider2,
     xdgDefault,
     xdgConfigHome
   };
-#endif  // defined(MOZ_WIDGET_GTK)
+#endif  // defined(MOZ_WIDGET_LINUX_DESKTOP)
 
   /* make sure you clone it, if you need to do stuff to it */
   nsIFile* GetGREDir() { return mGREDir; }

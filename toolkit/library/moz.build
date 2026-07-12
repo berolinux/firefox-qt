@@ -328,6 +328,13 @@ if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk" and CONFIG["COMPILE_ENVIRONMENT"]:
     OS_LIBS += CONFIG["MOZ_X11_LIBS"]
     OS_LIBS += CONFIG["MOZ_PANGO_LIBS"]
 
+if CONFIG["MOZ_WIDGET_TOOLKIT"] == "qt" and CONFIG["COMPILE_ENVIRONMENT"]:
+    OS_LIBS += CONFIG["MOZ_QT6_LIBS"]
+    # Fontconfig/FreeType used by gfx for Linux desktop.
+    OS_LIBS += CONFIG["FT2_LIBS"]
+    # GLib/GIO used by WebRTC portal/desktop capture and other Linux helpers.
+    OS_LIBS += CONFIG["GLIB_LIBS"]
+
 if CONFIG["MOZ_ENABLE_LIBPROXY"]:
     OS_LIBS += CONFIG["MOZ_LIBPROXY_LIBS"]
 

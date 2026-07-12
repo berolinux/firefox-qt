@@ -53,7 +53,7 @@ XPCOM_MANIFESTS += [
     "components.conf",
 ]
 
-if toolkit in ("android", "cocoa", "gtk", "uikit", "windows"):
+if toolkit in ("android", "cocoa", "gtk", "qt", "uikit", "windows"):
     DIRS += [toolkit]
 
 if toolkit == "cocoa":
@@ -72,6 +72,12 @@ if toolkit == "cocoa":
 elif toolkit == "gtk":
     XPIDL_SOURCES += [
         "nsIApplicationChooser.idl",
+        "nsIGtkTaskbarProgress.idl",
+        "nsITaskbarProgress.idl",
+    ]
+elif toolkit == "qt":
+    # Same taskbar progress IDL as GTK (setPrimaryWindow + setProgressState).
+    XPIDL_SOURCES += [
         "nsIGtkTaskbarProgress.idl",
         "nsITaskbarProgress.idl",
     ]
@@ -306,7 +312,7 @@ if CONFIG["OS_ARCH"] == "Linux":
     EXPORTS.mozilla.widget += ["LSBUtils.h"]
     SOURCES += ["LSBUtils.cpp"]
 
-if toolkit in ("cocoa", "gtk"):
+if toolkit in ("cocoa", "gtk", "qt"):
     UNIFIED_SOURCES += [
         "nsCUPSShim.cpp",
         "nsPrinterCUPS.cpp",
@@ -333,17 +339,17 @@ EXPORTS.ipc = [
 if CONFIG["MOZ_X11"] or CONFIG["MOZ_WAYLAND"]:
     DIRS += ["x11"]
 
-if toolkit in {"gtk", "cocoa", "windows", "android", "uikit"}:
+if toolkit in {"gtk", "cocoa", "windows", "android", "uikit", "qt"}:
     UNIFIED_SOURCES += [
         "nsBaseFilePicker.cpp",
     ]
 
-if toolkit in {"gtk", "cocoa", "windows"}:
+if toolkit in {"gtk", "cocoa", "windows", "qt"}:
     UNIFIED_SOURCES += [
         "nsBaseColorPicker.cpp",
     ]
 
-if toolkit in ("gtk", "windows", "cocoa", "uikit", "android"):
+if toolkit in ("gtk", "windows", "cocoa", "uikit", "android", "qt"):
     UNIFIED_SOURCES += [
         "nsNativeTheme.cpp",
     ]
@@ -369,8 +375,8 @@ LOCAL_INCLUDES += [
     "/widget/headless",
 ]
 
-# We use the CUPS headers on Cocoa and GTK, but on GTK we don't depend on there being system headers.
-if toolkit == "gtk":
+# We use the CUPS headers on Cocoa, GTK, and Qt; on GTK/Qt we don't depend on system headers.
+if toolkit in ("gtk", "qt"):
     LOCAL_INCLUDES += ["/third_party/cups/include"]
 
 if toolkit == "windows":
@@ -384,6 +390,12 @@ elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
         "gtk/PCompositorWidget.ipdl",
         "gtk/PlatformWidgetTypes.ipdlh",
         "headless/HeadlessWidgetTypes.ipdlh",
+    ]
+elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "qt":
+    IPDL_SOURCES = [
+        "headless/HeadlessWidgetTypes.ipdlh",
+        "qt/PCompositorWidget.ipdl",
+        "qt/PlatformWidgetTypes.ipdlh",
     ]
 elif toolkit == "android":
     IPDL_SOURCES = [
@@ -427,6 +439,8 @@ FINAL_LIBRARY = "xul"
 
 if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
     CXXFLAGS += CONFIG["MOZ_GTK3_CFLAGS"]
+elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "qt":
+    CXXFLAGS += CONFIG["MOZ_QT6_CFLAGS"]
 if CONFIG["MOZ_WAYLAND"]:
     CXXFLAGS += CONFIG["MOZ_WAYLAND_CFLAGS"]
 

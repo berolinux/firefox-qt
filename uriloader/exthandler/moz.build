@@ -87,6 +87,12 @@ if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
         "unix/nsGNOMERegistry.cpp",
         "unix/nsMIMEInfoUnix.cpp",
     ]
+elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "qt":
+    # Share UNIX MIME helpers; FreeDesktop registry uses unixdesktop service.
+    UNIFIED_SOURCES += [
+        "unix/nsGNOMERegistry.cpp",
+        "unix/nsMIMEInfoUnix.cpp",
+    ]
 elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "android":
     UNIFIED_SOURCES += [
         "android/nsMIMEInfoAndroid.cpp",

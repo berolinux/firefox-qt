@@ -128,6 +128,10 @@ elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
         "nsNativeAppSupportUnix.cpp",
     ]
     CXXFLAGS += CONFIG["MOZ_X11_SM_CFLAGS"]
+elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "qt":
+    UNIFIED_SOURCES += [
+        "nsNativeAppSupportDefault.cpp",
+    ]
 else:
     UNIFIED_SOURCES += [
         "nsNativeAppSupportDefault.cpp",

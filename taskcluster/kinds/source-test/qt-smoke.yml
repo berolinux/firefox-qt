@@ -1,0 +1,47 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+---
+# Source-level gates for cairo-qt (no Qt SDK on the worker).
+# Full compile remains linux64-qt/opt (try-only until images ship Qt6).
+
+qt-source-smoke:
+    description: "cairo-qt source smoke (mozconfigs + no first-party GIO)"
+    platform: lint/opt
+    worker-type: t-linux-docker-amd
+    worker:
+        docker-image: {in-tree: "lint"}
+        max-run-time: 1800
+    treeherder:
+        kind: test
+        platform: lint/opt
+        symbol: Qt(s)
+        tier: 2
+    run-on-projects: ['autoland', 'mozilla-central', 'try']
+    run-on-repo-type: [hg]
+    run:
+        using: run-task
+        cwd: '{checkout}'
+        command: >-
+            set -e;
+            test -f browser/config/mozconfigs/linux64/qt-opt;
+            test -f browser/config/mozconfigs/linux64/qt-debug;
+            test -f taskcluster/kinds/build/linux-qt.yml;
+            test -x widget/qt/ci/smoke-configure.sh;
+            test -x widget/qt/ci/smoke-runtime.sh;
+            if rg -n 'gio/gio\.h|g_dbus_proxy|GDBusProxy' --glob '!ci/**'
+              widget/qt toolkit/system/unixdesktop
+              browser/components/shell/nsQtShellService.cpp
+              netwerk/wifi/dbus/QtDbusWifiScanner.cpp; then
+              echo 'FAIL: first-party GIO found'; exit 1;
+            fi;
+            rg -n 'setDesktopFileName|ShouldUsePortal|PortalLocationProviderQt' widget/qt/ >/dev/null;
+            echo 'qt-source-smoke OK'
+    when:
+        files-changed:
+            - 'widget/qt/**'
+            - 'toolkit/system/unixdesktop/**'
+            - 'browser/config/mozconfigs/linux64/qt*'
+            - 'taskcluster/kinds/build/linux-qt.yml'
+            - 'taskcluster/kinds/source-test/qt-smoke.yml'
+            - 'dom/geolocation/Geolocation.cpp'

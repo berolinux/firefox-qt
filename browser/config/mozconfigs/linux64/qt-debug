@@ -1,0 +1,12 @@
+# Experimental Linux64 Qt (cairo-qt) debug build.
+. "$topsrcdir/build/unix/mozconfig.unix"
+
+ac_add_options --enable-default-toolkit=cairo-qt
+ac_add_options --enable-debug
+ac_add_options --disable-optimize
+ac_add_options --enable-webrtc
+ac_add_options --enable-pulseaudio
+
+export MOZILLA_OFFICIAL=1
+
+. "$topsrcdir/build/mozconfig.common.override"

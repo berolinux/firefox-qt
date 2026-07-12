@@ -147,6 +147,11 @@ if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
         "/media/mozva",
         "/toolkit/system/gnome",
     ]
+elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "qt":
+    # FreeDesktop/Qt MIME and protocol handlers (no GIO).
+    DIRS += [
+        "/toolkit/system/unixdesktop",
+    ]
 
 if CONFIG["ENABLE_WEBDRIVER"]:
     DIRS += [
