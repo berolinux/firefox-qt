@@ -42,6 +42,9 @@ export const AppConstants: Readonly<{
   // #ifdef MOZ_WIDGET_GTK
   MOZ_WIDGET_GTK: boolean;
 
+  // #ifdef MOZ_WIDGET_QT
+  MOZ_WIDGET_QT: boolean;
+
   MOZ_WMF_CDM: boolean;
 
   // #ifdef XP_UNIX
@@ -117,7 +120,7 @@ export const AppConstants: Readonly<{
   MOZ_MACBUNDLE_ID: "org.mozilla.firefox";
   MOZ_MACBUNDLE_NAME: "Firefox.app";
   MOZ_UPDATE_CHANNEL: "nightly" | "beta" | "aurora" | "release" | "esr" | "default" | "unofficial";
-  MOZ_WIDGET_TOOLKIT: "android" | "cocoa" | "gtk" | "windows" | "uikit";
+  MOZ_WIDGET_TOOLKIT: "android" | "cocoa" | "gtk" | "qt" | "windows" | "uikit";
 
   DEBUG_JS_MODULES: string;
 

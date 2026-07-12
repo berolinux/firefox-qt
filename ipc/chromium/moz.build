@@ -134,9 +134,24 @@ elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
     SOURCES += [
         "src/base/message_pump_glib.cc",
     ]
+elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "qt":
+    SOURCES += [
+        "src/base/message_pump_qt.cc",
+    ]
+    GeneratedFile(
+        "moc_message_pump_qt.cpp",
+        script="/widget/qt/moc_generate.py",
+        inputs=["src/base/message_pump_qt.h"],
+        flags=["%s" % CONFIG["MOZ_QT_MOC"]],
+    )
+    SOURCES += ["!moc_message_pump_qt.cpp"]
 
 if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
     CXXFLAGS += CONFIG["MOZ_GTK3_CFLAGS"]
+elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "qt":
+    CXXFLAGS += CONFIG["MOZ_QT6_CFLAGS"]
+    # message_pump_qt includes Qt headers that need default visibility.
+    NoVisibilityFlags()
 
 TEST_DIRS += [
     "gtest",

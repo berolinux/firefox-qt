@@ -36,6 +36,7 @@ tasks-from:
     - puppeteer.yml
     - python.yml
     - python-android.yml
+    - qt-smoke.yml
     - shadow-scheduler.yml
     - taskgraph.yml
     - vendor.yml

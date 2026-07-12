@@ -16,6 +16,8 @@ elif toolkit in ("cocoa", "uikit"):
     DIRS += ["mac"]
 elif toolkit == "gtk":
     DIRS += ["gtk"]
+elif toolkit == "qt":
+    DIRS += ["qt"]
 elif toolkit == "android":
     DIRS += ["android"]
 

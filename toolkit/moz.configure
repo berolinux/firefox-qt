@@ -652,12 +652,14 @@ def toolkit_choices(target):
         # cairo-gtk3 - X11 backend with optional Wayland backend (auto detected)
         # cairo-gtk3-wayland - Wayland backend with optional X11 backend (auto detected)
         # cairo-gtk3-x11-wayland - builds explicitly with X11 & Wayland backends
+        # cairo-qt - Qt 6.11+ widget backend (X11 and/or Wayland via Qt QPA)
         return (
             "cairo-gtk3",
             "cairo-gtk3-wayland",
             "cairo-gtk3-x11-wayland",
             "cairo-gtk3-wayland-only",
             "cairo-gtk3-x11-only",
+            "cairo-qt",
         )
 
 
@@ -707,6 +709,20 @@ def toolkit_gtk(toolkit):
     return toolkit == "gtk"
 
 
+@depends(toolkit)
+def toolkit_qt(toolkit):
+    return toolkit == "qt"
+
+
+@depends(toolkit)
+def toolkit_linux_desktop(toolkit):
+    return toolkit in ("gtk", "qt")
+
+
+set_config("MOZ_WIDGET_LINUX_DESKTOP", True, when=toolkit_linux_desktop)
+set_define("MOZ_WIDGET_LINUX_DESKTOP", True, when=toolkit_linux_desktop)
+
+
 @depends(toolkit_gtk, full_toolkit)
 def toolkit_gtk_x11(toolkit_gtk, full_toolkit):
     return toolkit_gtk and full_toolkit != "cairo-gtk3-wayland-only"
@@ -727,41 +743,107 @@ def toolkit_gtk_wayland_optional(full_toolkit):
     return full_toolkit == "cairo-gtk3"
 
 
+# Qt uses QPA for both X11 and Wayland; Gecko's MOZ_X11/MOZ_WAYLAND code
+# paths remain GTK-oriented (GDK, DMABuf helpers, etc.). Do not enable those
+# defines for Qt until the shared Linux pieces are extracted.
+@depends(toolkit_gtk_x11)
+def need_x11(toolkit_gtk_x11):
+    return toolkit_gtk_x11
+
+
+@depends(toolkit_gtk_x11_optional)
+def x11_optional(toolkit_gtk_x11_optional):
+    return toolkit_gtk_x11_optional
+
+
 # Wayland support
 # ==============================================================
-wayland_headers = pkg_check_modules(
+wayland_headers_gtk = pkg_check_modules(
     "MOZ_WAYLAND",
     "gtk+-wayland-3.0 >= 3.14 xkbcommon >= 0.4.1",
     allow_missing=toolkit_gtk_wayland_optional,
     when=toolkit_gtk_wayland,
 )
 
+wayland_headers_qt = pkg_check_modules(
+    "MOZ_WAYLAND_QT",
+    "wayland-client >= 1.11 xkbcommon >= 0.4.1",
+    allow_missing=True,
+    when=toolkit_qt,
+)
 
-@depends(wayland_headers, toolkit_gtk, artifact_builds, toolkit_gtk_wayland)
-def wayland_headers(wayland, toolkit_gtk, artifacts, toolkit_gtk_wayland):
+
+@depends(
+    wayland_headers_gtk,
+    wayland_headers_qt,
+    toolkit_gtk,
+    toolkit_qt,
+    artifact_builds,
+    toolkit_gtk_wayland,
+)
+def wayland_headers(
+    wayland_gtk,
+    wayland_qt,
+    toolkit_gtk,
+    toolkit_qt,
+    artifacts,
+    toolkit_gtk_wayland,
+):
+    # MOZ_WAYLAND currently gates GTK-tied code (mozwayland, NativeLayerWayland,
+    # DMABuf Wayland paths). Qt uses QPA for Wayland windowing instead; enable
+    # Gecko MOZ_WAYLAND for Qt only after those pieces are toolkit-neutral.
+    if toolkit_qt:
+        return False
     if not toolkit_gtk_wayland:
         return False
     if toolkit_gtk and artifacts:
         return True
-    return wayland
+    return wayland_gtk
 
 
 set_config("MOZ_WAYLAND", depends_if(wayland_headers)(lambda _: True))
 set_define("MOZ_WAYLAND", depends_if(wayland_headers)(lambda _: True))
 
 
-# Hardware-accelerated video decode (VAAPI, Vulkan, V4L2) on Linux
-# ================================================================
-set_config("MOZ_ENABLE_VAAPI", True, when=toolkit_gtk)
-set_define("MOZ_ENABLE_VAAPI", True, when=toolkit_gtk)
+# GTK's pkg_check_modules("MOZ_WAYLAND") already publishes CFLAGS/LIBS. For Qt
+# the package uses a different prefix; map it onto the same config keys.
+@depends(wayland_headers_qt, when=toolkit_qt)
+def qt_wayland_cflags(wayland_qt):
+    return wayland_qt.cflags if wayland_qt else []
 
-set_config("MOZ_ENABLE_VULKAN_VIDEO", True, when=toolkit_gtk)
-set_define("MOZ_ENABLE_VULKAN_VIDEO", True, when=toolkit_gtk)
+
+@depends(wayland_headers_qt, when=toolkit_qt)
+def qt_wayland_libs(wayland_qt):
+    return wayland_qt.libs if wayland_qt else []
+
+
+set_config("MOZ_WAYLAND_CFLAGS", qt_wayland_cflags, when=toolkit_qt)
+set_config("MOZ_WAYLAND_LIBS", qt_wayland_libs, when=toolkit_qt)
+
+
+# Hardware-accelerated video decode with VAAPI and V4L2 on Linux
+# ==============================================================
+# VAAPI depends on DMABuf helpers (libgbm/libdrm). Shared for GTK and Qt.
+@depends(toolkit_gtk, toolkit_qt)
+def enable_vaapi(toolkit_gtk, toolkit_qt):
+    return bool(toolkit_gtk or toolkit_qt)
+
+
+set_config("MOZ_ENABLE_VAAPI", True, when=enable_vaapi)
+set_define("MOZ_ENABLE_VAAPI", True, when=enable_vaapi)
+
+@depends(toolkit_gtk, toolkit_qt)
+def enable_vulkan_video(toolkit_gtk, toolkit_qt):
+    return bool(toolkit_gtk or toolkit_qt)
+
+
+set_config("MOZ_ENABLE_VULKAN_VIDEO", True, when=enable_vulkan_video)
+set_define("MOZ_ENABLE_VULKAN_VIDEO", True, when=enable_vulkan_video)
 
 
 @depends(target, toolkit_gtk)
 def v4l2(target, toolkit_gtk):
-    # V4L2 decode is only used in GTK/Linux and generally only appears on
+    # V4L2 decode is only used on GTK/Linux and generally only appears on
     # embedded SOCs.
     if target.cpu in ("arm", "aarch64", "riscv64") and toolkit_gtk:
         return True
@@ -849,7 +931,7 @@ set_config("MOZ_GL_PROVIDER", gl_provider)
 # ==============================================================
 @depends(toolkit)
 def pdf_printing(toolkit):
-    if toolkit in ("windows", "gtk", "android"):
+    if toolkit in ("windows", "gtk", "qt", "android"):
         return True
 
 
@@ -863,7 +945,7 @@ option(env="USE_FC_FREETYPE", help="Force-enable the use of fontconfig freetype"
 
 @depends("USE_FC_FREETYPE", toolkit)
 def fc_freetype(value, toolkit):
-    if value or (toolkit == "gtk" and value.origin == "default"):
+    if value or (toolkit in ("gtk", "qt") and value.origin == "default"):
         return True
 
 
@@ -1569,7 +1651,7 @@ set_define("MOZ_RAW", depends_if("--enable-raw")(lambda _: True))
 
 # X11
 # ==============================================================
-@depends(webrtc, when=toolkit_gtk)
+@depends(webrtc, when=need_x11)
 def x11_libs(webrtc):
     libs = [
         "x11",
@@ -1595,8 +1677,8 @@ def x11_libs(webrtc):
 x11 = pkg_check_modules(
     "MOZ_X11",
     x11_libs,
-    allow_missing=toolkit_gtk_x11_optional,
-    when=toolkit_gtk_x11,
+    allow_missing=x11_optional,
+    when=need_x11,
     config=False,  # set after the OpenBSD hook below
 )
 
@@ -1623,7 +1705,7 @@ pkg_check_modules(
     "MOZ_X11_SM",
     ["ice", "sm"],
     cflags_only=True,
-    allow_missing=toolkit_gtk_x11_optional,
+    allow_missing=x11_optional,
     when=toolkit_gtk_x11,
 )
 
@@ -3543,16 +3625,318 @@ with only_when(toolkit_gtk):
     set_define("GDK_VERSION_MIN_REQUIRED", "GDK_VERSION_3_14")
     set_define("GDK_VERSION_MAX_ALLOWED", "GDK_VERSION_3_14")
 
-    pkg_check_modules("GLIB", "glib-2.0 >= 2.42 gobject-2.0")
+    set_define("MOZ_ACCESSIBILITY_ATK", True, when=accessibility)
+
+# GLib (GTK widget stack and Linux desktop code shared with Qt, e.g. gamepad)
+# ==============================================================
+with only_when(toolkit_linux_desktop):
+    # gio-unix provides gio/gdesktopappinfo.h used by GRefPtr on Linux.
+    pkg_check_modules(
+        "GLIB", "glib-2.0 >= 2.42 gobject-2.0 gio-2.0 gio-unix-2.0"
+    )
 
     set_define("GLIB_VERSION_MIN_REQUIRED", "GLIB_VERSION_2_42")
     set_define("GLIB_VERSION_MAX_ALLOWED", "GLIB_VERSION_2_42")
 
-    set_define("MOZ_ACCESSIBILITY_ATK", True, when=accessibility)
+# Qt 6
+# ==============================================================
+with only_when(toolkit_qt):
+    pkg_check_modules(
+        "MOZ_QT6",
+        "Qt6Core >= 6.11 Qt6Gui >= 6.11 Qt6Widgets >= 6.11 "
+        "Qt6PrintSupport >= 6.11 Qt6DBus >= 6.11",
+    )
+
+    # Avoid Qt keywords (signals/slots/emit) clashing with Gecko identifiers.
+    set_define("QT_NO_KEYWORDS", True)
+
+    @depends(when=toolkit_qt)
+    @imports(_from="os.path", _import="join")
+    @imports(_from="os.path", _import="exists")
+    @imports(_from="os.path", _import="dirname")
+    @imports(_from="shutil", _import="which")
+    @imports(_from="subprocess", _import="check_output")
+    @imports(_from="subprocess", _import="CalledProcessError")
+    def moz_qt_moc():
+        """Locate moc without distro-specific path hardcodes.
+
+        Prefer pkg-config variables from Qt6Core / Qt6CoreTools, then tools
+        that query the same Qt install (qtpaths / qmake), then PATH.
+        """
+        candidates = []
+
+        def add_moc_from_dir(directory):
+            if directory:
+                candidates.append(join(directory, "moc"))
+
+        for package in ("Qt6CoreTools", "Qt6Core"):
+            for variable in ("libexecdir", "host_bins", "bindir"):
+                try:
+                    value = check_output(
+                        ["pkg-config", f"--variable={variable}", package],
+                        text=True,
+                    ).strip()
+                except CalledProcessError:
+                    value = ""
+                add_moc_from_dir(value)
+
+        # qtpaths / qmake report host tool locations portably when present.
+        for tool, args in (
+            ("qtpaths6", ["--query", "QT_HOST_LIBEXECS"]),
+            ("qtpaths6", ["--query", "QT_INSTALL_LIBEXECS"]),
+            ("qtpaths", ["--query", "QT_HOST_LIBEXECS"]),
+            ("qtpaths", ["--query", "QT_INSTALL_LIBEXECS"]),
+            ("qmake6", ["-query", "QT_HOST_LIBEXECS"]),
+            ("qmake6", ["-query", "QT_INSTALL_LIBEXECS"]),
+            ("qmake", ["-query", "QT_HOST_LIBEXECS"]),
+            ("qmake", ["-query", "QT_INSTALL_LIBEXECS"]),
+        ):
+            tool_path = which(tool)
+            if not tool_path:
+                continue
+            try:
+                directory = check_output([tool_path] + args, text=True).strip()
+            except (CalledProcessError, OSError):
+                continue
+            # qmake may return "unknown" for unset keys.
+            if directory and directory.lower() != "unknown":
+                add_moc_from_dir(directory)
+
+        # Last resort: anything named moc / moc-qt6 on PATH.
+        for name in ("moc-qt6", "moc"):
+            found = which(name)
+            if found:
+                candidates.append(found)
+
+        seen = set()
+        for path in candidates:
+            if not path or path in seen:
+                continue
+            seen.add(path)
+            if exists(path):
+                return path
+
+        die(
+            "Qt moc not found. Install Qt6 development tools (moc) or ensure "
+            "pkg-config Qt6Core reports libexecdir/bindir. Required for "
+            "--enable-default-toolkit=cairo-qt."
+        )
+
+    set_config("MOZ_QT_MOC", moz_qt_moc)
+
+    @depends(when=toolkit_qt)
+    @imports(_from="os.path", _import="join")
+    @imports(_from="os.path", _import="exists")
+    @imports(_from="shutil", _import="which")
+    @imports(_from="subprocess", _import="check_output")
+    @imports(_from="subprocess", _import="CalledProcessError")
+    def moz_qt_private_gui_cflags():
+        """CFLAGS for private QtGui headers (QPA), e.g. qpa/qplatformnativeinterface.h.
+
+        Layout is portable across distros:
+          $includedir/QtGui/$version/QtGui
+        where includedir and version come from pkg-config Qt6Gui.
+        """
+        try:
+            includedir = check_output(
+                ["pkg-config", "--variable=includedir", "Qt6Gui"],
+                text=True,
+            ).strip()
+            version = check_output(
+                ["pkg-config", "--modversion", "Qt6Gui"],
+                text=True,
+            ).strip()
+        except CalledProcessError:
+            die("pkg-config Qt6Gui is required for cairo-qt")
+
+        if not includedir or not version:
+            die("Could not determine Qt6Gui includedir/version via pkg-config")
+
+        candidates = [
+            join(includedir, "QtGui", version, "QtGui"),
+        ]
+
+        # Some installs expose the same tree via qtpaths/qmake headers path.
+        for tool, args in (
+            ("qtpaths6", ["--query", "QT_INSTALL_HEADERS"]),
+            ("qtpaths", ["--query", "QT_INSTALL_HEADERS"]),
+            ("qmake6", ["-query", "QT_INSTALL_HEADERS"]),
+            ("qmake", ["-query", "QT_INSTALL_HEADERS"]),
+        ):
+            tool_path = which(tool)
+            if not tool_path:
+                continue
+            try:
+                headers = check_output([tool_path] + args, text=True).strip()
+            except (CalledProcessError, OSError):
+                continue
+            if headers and headers.lower() != "unknown":
+                candidates.append(join(headers, "QtGui", version, "QtGui"))
+
+        seen = set()
+        for path in candidates:
+            if not path or path in seen:
+                continue
+            seen.add(path)
+            header = join(path, "qpa", "qplatformnativeinterface.h")
+            if exists(header):
+                return [f"-I{path}"]
+
+        die(
+            "Qt6Gui private headers not found (need "
+            "qpa/qplatformnativeinterface.h under "
+            "$Qt6Gui_includedir/QtGui/$version/QtGui). Install the Qt6 Gui "
+            "private/development package for your distro."
+        )
+
+    set_config("MOZ_QT_PRIVATE_GUI_CFLAGS", moz_qt_private_gui_cflags)
+
+    # Optional KDE Frameworks. Pure-Qt builds remain possible with
+    # --disable-kf6. When enabled (default), individual KF packages are
+    # auto-detected and used only if found — never hard-required.
+    option(
+        "--disable-kf6",
+        help="Disable optional KDE Frameworks (KF6) integration on Qt",
+        when=toolkit_qt,
+    )
+
+    @depends("--enable-kf6", when=toolkit_qt)
+    def enable_kf6(value):
+        return bool(value)
+
+    # Optional KF6Service for Plasma app trading / preferred handlers.
+    # KF6 often ships CMake packages without a pkg-config .pc file, so probe
+    # via cmake find_package rather than pkg-config.
+    @depends(toolkit_qt, enable_kf6, when=toolkit_qt)
+    @checking("for KF6Service (cmake)")
+    @imports(_from="os.path", _import="join")
+    @imports(_from="os.path", _import="exists")
+    @imports(_from="os.path", _import="dirname")
+    @imports(_from="os", _import="makedirs")
+    @imports(_from="shutil", _import="which")
+    @imports(_from="subprocess", _import="run")
+    @imports(_from="tempfile", _import="TemporaryDirectory")
+    @imports(_from="textwrap", _import="dedent")
+    @imports(_from="builtins", _import="open")
+    def kf6_service_cmake(_toolkit_qt, enable_kf6):
+        if not enable_kf6:
+            return None
+        cmake = which("cmake")
+        if not cmake:
+            return None
+
+        cmakelists = dedent(
+            """\
+            cmake_minimum_required(VERSION 3.16)
+            project(moz_kf6_service_probe LANGUAGES CXX)
+            find_package(KF6Service QUIET)
+            if(NOT KF6Service_FOUND)
+              message(FATAL_ERROR "KF6Service not found")
+            endif()
+            get_target_property(_incs KF6::Service INTERFACE_INCLUDE_DIRECTORIES)
+            if(_incs)
+              foreach(i IN LISTS _incs)
+                message(STATUS "MOZ_KF6_INC=${i}")
+              endforeach()
+            endif()
+            set(_loc "")
+            get_target_property(_configs KF6::Service IMPORTED_CONFIGURATIONS)
+            foreach(cfg IN ITEMS RELWITHDEBINFO RELEASE NONE DEBUG ${_configs})
+              if(NOT _loc AND cfg)
+                get_target_property(_try KF6::Service IMPORTED_LOCATION_${cfg})
+                if(_try)
+                  set(_loc "${_try}")
+                endif()
+              endif()
+            endforeach()
+            if(NOT _loc)
+              get_target_property(_loc KF6::Service IMPORTED_LOCATION)
+            endif()
+            if(_loc)
+              message(STATUS "MOZ_KF6_LIB=${_loc}")
+              get_filename_component(_libdir "${_loc}" DIRECTORY)
+              message(STATUS "MOZ_KF6_LIBDIR=${_libdir}")
+            endif()
+            """
+        )
+
+        with TemporaryDirectory(prefix="moz-kf6-") as tmp:
+            with open(join(tmp, "CMakeLists.txt"), "w", encoding="utf-8") as fh:
+                fh.write(cmakelists)
+            build = join(tmp, "build")
+            makedirs(build, exist_ok=True)
+            proc = run(
+                [cmake, "-S", tmp, "-B", build],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        if proc.returncode != 0:
+            return None
+
+        incs = []
+        lib = None
+        libdir = None
+        for line in (proc.stdout or "").splitlines():
+            # cmake STATUS lines look like: -- MOZ_KF6_INC=/path
+            if "MOZ_KF6_INC=" in line:
+                incs.append(line.split("MOZ_KF6_INC=", 1)[1].strip())
+            elif "MOZ_KF6_LIBDIR=" in line:
+                libdir = line.split("MOZ_KF6_LIBDIR=", 1)[1].strip()
+            elif "MOZ_KF6_LIB=" in line:
+                lib = line.split("MOZ_KF6_LIB=", 1)[1].strip()
+
+        if not incs and not lib:
+            # Fall back to conventional layout when cmake found the package
+            # but properties were empty (some distro exports).
+            for candidate in (
+                "/usr/include/KF6/KService",
+                "/usr/local/include/KF6/KService",
+            ):
+                if exists(candidate):
+                    incs.append(candidate)
+                    break
+            for candidate in (
+                "/usr/lib64/libKF6Service.so",
+                "/usr/lib/libKF6Service.so",
+                "/usr/lib/x86_64-linux-gnu/libKF6Service.so",
+            ):
+                if exists(candidate):
+                    lib = candidate
+                    libdir = dirname(candidate)
+                    break
+
+        if not incs or not lib:
+            return None
+
+        cflags = [f"-I{i}" for i in incs]
+        # Shared lib pulls its own DT_NEEDED deps (Qt6Xml, KF6ConfigCore, …).
+        libs = []
+        if libdir:
+            libs.append(f"-L{libdir}")
+        libs.append("-lKF6Service")
+        return namespace(cflags=cflags, libs=libs, found=True)
+
+    set_config("MOZ_ENABLE_KF6_SERVICE", depends_if(kf6_service_cmake)(lambda _: True))
+    set_define(
+        "MOZ_ENABLE_KF6_SERVICE", True, when=depends_if(kf6_service_cmake)(lambda _: True)
+    )
+    set_config(
+        "MOZ_KF6_SERVICE_CFLAGS",
+        depends(kf6_service_cmake)(lambda k: k.cflags if k else []),
+    )
+    set_config(
+        "MOZ_KF6_SERVICE_LIBS",
+        depends(kf6_service_cmake)(lambda k: k.libs if k else []),
+    )
 
 # DBus
 # ==============================================================
-with only_when(toolkit_gtk):
+# libdbus is used by GTK widgets, Necko WiFi, and some Linux desktop
+# integrations. Qt widget code prefers QtDBus but still benefits from
+# MOZ_ENABLE_DBUS for shared Linux features such as Necko WiFi.
+with only_when(toolkit_linux_desktop):
     option("--disable-dbus", help="Disable dbus support", when=use_pkg_config)
 
     @depends("--enable-dbus", when=use_pkg_config)
@@ -3565,11 +3949,25 @@ with only_when(toolkit_gtk):
         set_config("MOZ_ENABLE_DBUS", True)
         set_define("MOZ_ENABLE_DBUS", True)
 
+# Optional libdbusmenu-qt6 for Plasma global menubar (Qt toolkit).
+# When missing, widget/qt falls back to dlopen of libdbusmenu-glib.
+# pkg_check_modules publishes MOZ_DBUSMENU_QT_{CFLAGS,LIBS}.
+with only_when(toolkit_qt):
+    dbusmenu_qt = pkg_check_modules(
+        "MOZ_DBUSMENU_QT",
+        "dbusmenu-qt6",
+        allow_missing=True,
+    )
+    set_config("MOZ_ENABLE_DBUSMENU_QT", True, when=dbusmenu_qt)
+    set_define("MOZ_ENABLE_DBUSMENU_QT", True, when=dbusmenu_qt)
+
 
 # Necko's wifi scanner
 # ==============================================================
-@depends(target)
-def necko_wifi_when(target):
+@depends(target, toolkit)
+def necko_wifi_when(target, toolkit):
+    # Linux WiFi scanning uses NetworkManager over D-Bus (QtDBus on Qt,
+    # GIO on GTK).
     return target.os in ("WINNT", "OSX", "DragonFly", "FreeBSD") or (
         target.kernel == "Linux" and target.os == "GNU"
     )
@@ -3583,17 +3981,20 @@ set_define("NECKO_WIFI", True, when="--enable-necko-wifi")
 
 @depends(
     depends("--enable-necko-wifi", when=necko_wifi_when)(lambda x: x),
-    depends(enable_dbus_option, when=toolkit_gtk)(lambda x: x),
+    depends(enable_dbus_option, when=toolkit_linux_desktop)(lambda x: x),
+    toolkit_gtk,
+    toolkit_qt,
     when=use_pkg_config
     & depends(target)(lambda t: t.os == "GNU" and t.kernel == "Linux"),
 )
-def necko_wifi_dbus(necko_wifi, dbus):
-    if necko_wifi and not dbus:
+def necko_wifi_dbus(necko_wifi, dbus, toolkit_gtk, toolkit_qt):
+    # DBus WiFi scanner (NetworkManager). Works with GTK (GIO) or Qt (QtDBus).
+    if necko_wifi and (toolkit_gtk or toolkit_qt) and not dbus:
         die(
             "Necko WiFi scanning needs DBus on your platform, remove --disable-dbus"
             " or use --disable-necko-wifi"
         )
-    return necko_wifi and dbus
+    return necko_wifi and dbus and (toolkit_gtk or toolkit_qt)
 
 
 set_config("NECKO_WIFI_DBUS", True, when=necko_wifi_dbus)
@@ -3623,7 +4024,7 @@ set_define("MOZ_LAYERS_HAVE_LOG", True, when="--enable-dump-painting")
 
 # libproxy support
 # ==============================================================
-with only_when(toolkit_gtk):
+with only_when(toolkit_linux_desktop):
     system_lib_option(
         "--enable-libproxy",
         help="Enable libproxy support",

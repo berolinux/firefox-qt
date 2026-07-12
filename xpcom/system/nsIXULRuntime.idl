@@ -318,6 +318,13 @@ interface nsIXULRuntime : nsISupports
   /** Whether the desktop environment uses a native menubar */
   readonly attribute boolean nativeMenubar;
 
+  /**
+   * Whether dialog primary/accept buttons should be on the left of cancel
+   * (Windows / KDE). False means primary on the right (GNOME / macOS).
+   * On Qt this reflects QStyle::SH_DialogButtonLayout.
+   */
+  readonly attribute boolean dialogPrimaryButtonOnLeft;
+
   /** Whether the chrome color-scheme is dark */
   readonly attribute boolean chromeColorSchemeIsDark;
 

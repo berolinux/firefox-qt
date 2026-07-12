@@ -102,10 +102,10 @@ nsIFile* gDataDirHome = nullptr;
 constinit nsCOMPtr<nsIFile> gDataDirProfileLocal{};
 constinit nsCOMPtr<nsIFile> gDataDirProfile{};
 
-#if defined(MOZ_WIDGET_GTK)
+#if defined(MOZ_WIDGET_LINUX_DESKTOP)
 nsXREDirProvider::legacyOrXDGHomeTelemetry gXdgTelemetry =
     nsXREDirProvider::legacyOrXDGHomeTelemetry::empty;
-#endif  // defined(MOZ_WIDGET_GTK)
+#endif  // defined(MOZ_WIDGET_LINUX_DESKTOP)
 
 // These are required to allow nsXREDirProvider to be usable in xpcshell tests.
 // where gAppData is null.
@@ -252,7 +252,7 @@ nsresult nsXREDirProvider::GetUserProfilesRootDir(nsIFile** aResult) {
       rv = tmp;
     }
 
-#if defined(MOZ_WIDGET_GTK)
+#if defined(MOZ_WIDGET_LINUX_DESKTOP)
     switch (gXdgTelemetry) {
       case legacyOrXDGHomeTelemetry::legacyExists:
         mozilla::glean::profiles::creation_place.Get("legacy_existing"_ns)
@@ -278,7 +278,7 @@ nsresult nsXREDirProvider::GetUserProfilesRootDir(nsIFile** aResult) {
         }
       } break;
     }
-#endif  // defined(MOZ_WIDGET_GTK)
+#endif  // defined(MOZ_WIDGET_LINUX_DESKTOP)
   }
   file.swap(*aResult);
   return rv;
@@ -1322,7 +1322,7 @@ nsresult nsXREDirProvider::AppendSysUserExtensionPath(nsIFile* aFile) {
   return NS_OK;
 }
 
-#if defined(MOZ_WIDGET_GTK)
+#if defined(MOZ_WIDGET_LINUX_DESKTOP)
 /*
  * Return whether MOZ_LEGACY_HOME == 1, via environment or at build time
  */
@@ -1571,7 +1571,7 @@ nsresult nsXREDirProvider::GetLegacyOrXDGHomePath(const char* aHomeDir,
 
   return NS_OK;
 }
-#endif  // defined(MOZ_WIDGET_GTK)
+#endif  // defined(MOZ_WIDGET_LINUX_DESKTOP)
 
 nsresult nsXREDirProvider::AppendProfilePath(nsIFile* aFile, bool aLocal) {
   NS_ASSERTION(aFile, "Null pointer!");
@@ -1633,7 +1633,7 @@ nsresult nsXREDirProvider::AppendProfilePath(nsIFile* aFile, bool aLocal) {
   // Make it hidden (by starting with "."), except when local (the
   // profile is already under ~/.cache or XDG_CACHE_HOME).
   if (!aLocal
-#  if defined(MOZ_WIDGET_GTK)
+#  if defined(MOZ_WIDGET_LINUX_DESKTOP)
       && (IsForceLegacyHome() || LegacyHomeExists(nullptr))
 #  endif
   ) {

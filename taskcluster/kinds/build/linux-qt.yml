@@ -1,0 +1,54 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+---
+# Experimental cairo-qt (Qt6 widget toolkit) Linux builds.
+#
+# Prerequisites on the worker / docker image (not yet in standard Firefox
+# Linux images):
+#   - Qt6 >= 6.11: Core, Gui, Widgets, PrintSupport, DBus (+ private Gui headers)
+#   - Optional: dbusmenu-qt6, PipeWire, libva
+#
+# Until images include Qt, this job is try-only (run-on-projects: []).
+# Select on try with: ./mach try fuzzy -q 'linux64-qt'
+
+linux64-qt/opt:
+    description: "Linux64 Opt (cairo-qt / Qt6) [experimental]"
+    index:
+        product: firefox
+        job-name: linux64-qt-opt
+    treeherder:
+        platform: linux64-qt/opt
+        symbol: Bq
+        tier: 3
+    worker-type: b-linux-docker-amd
+    worker:
+        max-run-time: 7200
+        env:
+            PERFHERDER_EXTRA_OPTIONS: qt
+    run:
+        using: mozharness
+        actions: [build]
+        config:
+            - builds/releng_base_firefox.py
+            - builds/releng_base_linux_64_builds.py
+        script: mozharness/scripts/fx_desktop_build.py
+        tooltool-downloads: public
+        extra-config:
+            disable_package_metrics: true
+        mozconfig-variant: qt-opt
+    # Empty until docker images ship Qt6; enable on try explicitly.
+    run-on-projects: []
+    fetches:
+        toolchain:
+            - linux64-clang
+            - linux64-rust
+            - linux64-nasm
+            - linux64-node
+            - linux64-cbindgen
+            - linux64-dump_syms
+            - linux64-pkgconf
+            - sysroot-x86_64-linux-gnu
+            - sysroot-wasm32-wasi
+    optimization:
+        skip-unless-expanded: null
