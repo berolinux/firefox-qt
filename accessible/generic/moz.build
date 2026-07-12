@@ -55,6 +55,10 @@ elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "uikit":
     LOCAL_INCLUDES += [
         "/accessible/ios",
     ]
+elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "qt":
+    LOCAL_INCLUDES += [
+        "/accessible/qt",
+    ]
 else:
     LOCAL_INCLUDES += [
         "/accessible/other",

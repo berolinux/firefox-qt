@@ -1,0 +1,37 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+EXPORTS.mozilla.a11y += [
+    "AccessibleWrap.h",
+    "QtAccessible.h",
+]
+
+SOURCES += [
+    "AccessibleWrap.cpp",
+    "Platform.cpp",
+    "QtAccessible.cpp",
+]
+
+LOCAL_INCLUDES += [
+    "/accessible/base",
+    "/accessible/basetypes",
+    "/accessible/generic",
+    "/accessible/html",
+    "/accessible/ipc",
+    "/accessible/xpcom",
+    "/accessible/xul",
+    "/layout/generic",
+    "/widget",
+    "/widget/qt",
+]
+
+FINAL_LIBRARY = "xul"
+
+CXXFLAGS += CONFIG["MOZ_QT6_CFLAGS"]
+OS_LIBS += CONFIG["MOZ_QT6_LIBS"]
+
+# Qt headers conflict with -fvisibility=hidden wrappers.
+NoVisibilityFlags()
+
+include("/ipc/chromium/chromium-config.mozbuild")

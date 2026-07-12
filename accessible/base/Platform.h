@@ -57,10 +57,11 @@ void MaybeStartForceEnabled(bool aAsync = false);
 void PreInit();
 #endif
 
-#if defined(MOZ_ACCESSIBILITY_ATK) || defined(XP_DARWIN)
+#if defined(MOZ_ACCESSIBILITY_ATK) || defined(XP_DARWIN) || \
+    defined(MOZ_WIDGET_QT)
 /**
  * Is platform accessibility enabled.
- * Only used on Linux, MacOS and iOS for now.
+ * Only used on Linux, MacOS and iOS for now (and Qt).
  */
 bool ShouldA11yBeEnabled();
 #endif
