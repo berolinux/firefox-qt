@@ -80,6 +80,8 @@
 #elif defined(MOZ_WIDGET_GTK)
 #  include "DMABufFormats.h"
 #  include "gfxPlatformGtk.h"
+#elif defined(MOZ_WIDGET_QT)
+#  include "gfxPlatformQt.h"
 #elif defined(ANDROID)
 #  include "gfxAndroidPlatform.h"
 #endif
@@ -782,6 +784,8 @@ bool gfxPlatform::HasVariationFontSupport() {
     sHasVariationFontSupport = gfxPlatformMac::CheckVariationFontSupport();
 #elif defined(MOZ_WIDGET_GTK)
     sHasVariationFontSupport = gfxPlatformGtk::CheckVariationFontSupport();
+#elif defined(MOZ_WIDGET_QT)
+    sHasVariationFontSupport = gfxPlatformQt::CheckVariationFontSupport();
 #elif defined(ANDROID)
     sHasVariationFontSupport = gfxAndroidPlatform::CheckVariationFontSupport();
 #else
@@ -921,6 +925,8 @@ void gfxPlatform::Init() {
   gPlatform = new gfxPlatformMac;
 #elif defined(MOZ_WIDGET_GTK)
   gPlatform = new gfxPlatformGtk;
+#elif defined(MOZ_WIDGET_QT)
+  gPlatform = new gfxPlatformQt;
 #elif defined(ANDROID)
   gPlatform = new gfxAndroidPlatform;
 #else
@@ -1756,7 +1762,7 @@ BackendPrefsData gfxPlatform::GetBackendPrefs() const {
   data.mCanvasBitmask = BackendTypeBit(BackendType::SKIA);
   data.mContentBitmask = BackendTypeBit(BackendType::SKIA);
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   data.mCanvasBitmask |= BackendTypeBit(BackendType::CAIRO);
   data.mContentBitmask |= BackendTypeBit(BackendType::CAIRO);
 #endif
@@ -1787,7 +1793,7 @@ void gfxPlatform::InitBackendPrefs(BackendPrefsData&& aPrefsData) {
   }
 
   uint32_t swBackendBits = BackendTypeBit(BackendType::SKIA);
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   swBackendBits |= BackendTypeBit(BackendType::CAIRO);
 #endif
   mSoftwareBackend = GetContentBackendPref(swBackendBits);
@@ -2449,7 +2455,7 @@ void gfxPlatform::InitWebRenderConfig() {
 
   bool hasHardware = gfxConfig::IsEnabled(Feature::WEBRENDER);
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   // We require a hardware driver to back the GL context unless the user forced
   // on WebRender.
   if (!gfxConfig::IsForcedOnByUser(Feature::WEBRENDER) &&
@@ -2528,7 +2534,7 @@ void gfxPlatform::InitWebRenderConfig() {
 
   UpdateForceSubpixelAAWherePossible();
 
-#if defined(MOZ_WIDGET_ANDROID) || defined(MOZ_WIDGET_GTK)
+#if defined(MOZ_WIDGET_ANDROID) || (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT))
   if (StaticPrefs::gfx_webrender_software_opengl_AtStartup()) {
     gfxVars::SetAllowSoftwareWebRenderOGL(true);
   }
@@ -3003,7 +3009,7 @@ void gfxPlatform::InitHardwareVideoConfig() {
   CODEC_HW_FEATURE_SETUP(VP9)
 
   // H264/HEVC_HW_DECODE/ENCODE are used on Linux, Android, and Windows.
-#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_ANDROID) || defined(XP_WIN)
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT) || defined(MOZ_WIDGET_ANDROID) || defined(XP_WIN)
   CODEC_HW_FEATURE_SETUP(H264)
   CODEC_HW_FEATURE_SETUP(HEVC)
 #endif
@@ -3118,7 +3124,7 @@ void gfxPlatform::InitWebGLConfig() {
     }
   }
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   if (kIsLinux) {
     FeatureState& feature =
         gfxConfig::GetFeature(Feature::DMABUF_SURFACE_EXPORT);
@@ -3403,7 +3409,7 @@ bool gfxPlatform::UsesOffMainThreadCompositing() {
     result = gfxVars::BrowserTabsRemoteAutostart() ||
              !StaticPrefs::
                  layers_offmainthreadcomposition_force_disabled_AtStartup();
-#if defined(MOZ_WIDGET_GTK)
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
     // Linux users who chose OpenGL are being included in OMTC
     result |= StaticPrefs::
         layers_acceleration_force_enabled_AtStartup_DoNotUseDirectly();
@@ -3938,7 +3944,7 @@ bool gfxPlatform::FallbackFromAcceleration(FeatureStatus aStatus,
   }
 #endif
 
-#if defined(MOZ_WIDGET_ANDROID) || defined(MOZ_WIDGET_GTK)
+#if defined(MOZ_WIDGET_ANDROID) || (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT))
   // Before we disable OpenGL and HW_COMPOSITING, we should check if we can
   // fallback from WebRender to Software WebRender + OpenGL compositing.
   if (swglFallbackAllowed && gfxVars::AllowSoftwareWebRenderOGL() &&
@@ -3951,7 +3957,7 @@ bool gfxPlatform::FallbackFromAcceleration(FeatureStatus aStatus,
   }
 #endif
   // Android does not want to fallback to SW-WR.
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   if (swglFallbackAllowed && gfxVars::AllowSoftwareWebRenderOGL() &&
       gfxVars::UseSoftwareWebRender()) {
     // Fallback from Software WebRender + OpenGL to Software WebRender.

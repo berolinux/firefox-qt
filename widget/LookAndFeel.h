@@ -335,6 +335,13 @@ class LookAndFeel {
     // The system's hour cycle, either 0 if unknown, 12, or 24.
     HourCycle,
 
+    /**
+     * Whether dialog primary/accept buttons should be placed to the left of
+     * cancel/secondary actions (Windows and KDE), rather than to the right
+     * (GNOME and macOS). On Qt this follows QStyle::SH_DialogButtonLayout.
+     */
+    DialogPrimaryButtonOnLeft,
+
     /*
      * Not an ID; used to define the range of valid IDs.  Must be last.
      */
@@ -344,6 +351,10 @@ class LookAndFeel {
   // This is a common enough integer that seems worth the shortcut.
   static bool UseOverlayScrollbars() {
     return GetInt(IntID::UseOverlayScrollbars);
+  }
+
+  static bool DialogPrimaryButtonOnLeft() {
+    return GetInt(IntID::DialogPrimaryButtonOnLeft) != 0;
   }
 
   static constexpr int32_t kDefaultTooltipOffset = 21;

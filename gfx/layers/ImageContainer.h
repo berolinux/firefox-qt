@@ -87,7 +87,7 @@ class SurfaceTextureImage;
 class AndroidImageReaderImage;
 #elif defined(XP_DARWIN)
 class MacIOSurfaceImage;
-#elif MOZ_WIDGET_GTK
+#elif defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
 class DMABUFSurfaceImage;
 #endif
 
@@ -186,7 +186,7 @@ class Image {
   virtual MacIOSurfaceImage* AsMacIOSurfaceImage() { return nullptr; }
 #endif
   virtual PlanarYCbCrImage* AsPlanarYCbCrImage() { return nullptr; }
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   virtual DMABUFSurfaceImage* AsDMABUFSurfaceImage() { return nullptr; }
 #endif
 

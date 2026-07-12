@@ -32,10 +32,12 @@
 #  include "SharedSurfaceIO.h"
 #endif
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
 #  include "SharedSurfaceDMABUF.h"
-#  include "gfxPlatformGtk.h"
 #  include "mozilla/widget/DMABufDevice.h"
+#endif
+#ifdef MOZ_WIDGET_GTK
+#  include "gfxPlatformGtk.h"
 #endif
 
 #ifdef MOZ_WIDGET_ANDROID
@@ -116,7 +118,7 @@ UniquePtr<SurfaceFactory> SurfaceFactory::Create(
 #endif
 
     case layers::TextureType::DMABUF:
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
       if (gl.GetContextType() == GLContextType::EGL &&
           widget::DMABufDevice::IsDMABufWebGLEnabled()) {
         return SurfaceFactory_DMABUF::Create(gl);

@@ -33,7 +33,7 @@
 #  include "mozilla/webrender/RenderAndroidSurfaceTextureHost.h"
 #endif
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
 #  include "mozilla/layers/DMABUFTextureHostOGL.h"
 #endif
 
@@ -110,7 +110,7 @@ already_AddRefed<TextureHost> CreateTextureHostOGL(
       break;
     }
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
     case SurfaceDescriptor::TSurfaceDescriptorDMABuf: {
       const SurfaceDescriptorDMABuf& desc = aDesc.get_SurfaceDescriptorDMABuf();
       result = new DMABUFTextureHostOGL(aFlags, desc);

@@ -541,7 +541,7 @@ TEST_F(APZCPanningTesterMock, HoldGesture_ActiveWheelListener) {
   PanGesture(PanGestureInput::PANGESTURE_MAYSTART, manager, panPoint,
              ScreenPoint(0, 0), mcc->Time());
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   // On Linux, send a CANCELLED. This signifies the end of the hold gesture.
   // (On Mac the widget code goes directly to sending START.)
   mcc->AdvanceByMillis(5);
@@ -614,7 +614,7 @@ TEST_F(APZCPanningTesterMock, HoldGesture_PreventDefaultAfterLongHold) {
   // Allow enough time to pass for the content response timeout to be reached.
   mcc->AdvanceByMillis(30);
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   // On Linux, send a CANCELLED. This signifies the end of the hold gesture.
   // (On Mac the widget code goes directly to sending START.)
   QueueMockHitResult(scrollId, dispatchToContent);
@@ -695,7 +695,7 @@ TEST_F(APZCPanningTesterMock, HoldGesture_SubframeTargeting) {
   PanGesture(PanGestureInput::PANGESTURE_MAYSTART, manager, panPoint,
              ScreenPoint(0, 0), mcc->Time());
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   // On Linux, send a CANCELLED. This signifies the end of the hold gesture.
   // (On Mac the widget code goes directly to sending START.)
   mcc->AdvanceByMillis(5);

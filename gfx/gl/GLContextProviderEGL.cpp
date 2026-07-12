@@ -7,6 +7,13 @@
     ((EGLNativeWindowType)aWidget->GetNativeData(NS_NATIVE_EGL_WINDOW))
 #  define GET_NATIVE_WINDOW_FROM_COMPOSITOR_WIDGET(aWidget) \
     (aWidget->AsGTK()->GetEGLNativeWindow())
+#elif defined(MOZ_WIDGET_QT)
+#  include "mozilla/widget/QtCompositorWidget.h"
+#  include "mozilla/widget/QtEglUtils.h"
+#  define GET_NATIVE_WINDOW_FROM_REAL_WIDGET(aWidget) \
+    ((EGLNativeWindowType)aWidget->GetNativeData(NS_NATIVE_EGL_WINDOW))
+#  define GET_NATIVE_WINDOW_FROM_COMPOSITOR_WIDGET(aWidget) \
+    (aWidget->AsQt()->GetEGLNativeWindow())
 #elif defined(MOZ_WIDGET_ANDROID)
 #  define GET_NATIVE_WINDOW_FROM_REAL_WIDGET(aWidget) \
     ((EGLNativeWindowType)aWidget->GetNativeData(NS_JAVA_SURFACE))
@@ -290,7 +297,7 @@ already_AddRefed<GLContext> GLContextEGLFactory::CreateImpl(
   gl->MakeCurrent();
   gl->SetIsDoubleBuffered(doubleBuffered);
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   if (surface) {
     const int interval = gfxVars::SwapIntervalEGL() ? 1 : 0;
     egl->fSwapInterval(interval);
@@ -482,7 +489,7 @@ bool GLContextEGL::RenewSurface(CompositorWidget* aWidget) {
   }
   const bool ok = MakeCurrent(true);
   MOZ_ASSERT(ok);
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   if (mSurface) {
     const int interval = gfxVars::SwapIntervalEGL() ? 1 : 0;
     mEgl->fSwapInterval(interval);
@@ -837,12 +844,32 @@ WaylandOffscreenGLSurface::~WaylandOffscreenGLSurface() {
 EGLSurface GLContextEGL::CreateWaylandOffscreenSurface(
     EglDisplay& egl, EGLConfig config, mozilla::gfx::IntSize& pbsize) {
   wl_egl_window* eglwindow = nullptr;
+  struct wl_compositor* compositor = nullptr;
 
-  struct wl_compositor* compositor =
-      gdk_wayland_display_get_wl_compositor(gdk_display_get_default());
+#if defined(MOZ_WIDGET_GTK)
+  if (GdkDisplay* gdkDisplay = gdk_display_get_default()) {
+    compositor = gdk_wayland_display_get_wl_compositor(gdkDisplay);
+  }
+#endif
+#if defined(MOZ_WIDGET_QT)
+  if (!compositor) {
+    compositor = static_cast<struct wl_compositor*>(
+        widget::QtGetWaylandCompositor());
+  }
+#endif
+  if (!compositor) {
+    return nullptr;
+  }
+
   struct wl_surface* wlsurface = wl_compositor_create_surface(compositor);
+  if (!wlsurface) {
+    return nullptr;
+  }
   eglwindow = wl_egl_window_create(wlsurface, pbsize.width, pbsize.height);
-  if (!eglwindow) return nullptr;
+  if (!eglwindow) {
+    wl_surface_destroy(wlsurface);
+    return nullptr;
+  }
 
   const auto surface = egl.fCreateWindowSurface(
       config, reinterpret_cast<EGLNativeWindowType>(eglwindow), nullptr);
@@ -850,6 +877,9 @@ EGLSurface GLContextEGL::CreateWaylandOffscreenSurface(
     MOZ_DIAGNOSTIC_ASSERT(!sWaylandOffscreenGLSurfaces.Contains(surface));
     sWaylandOffscreenGLSurfaces.LookupOrInsert(
         surface, new WaylandOffscreenGLSurface(wlsurface, eglwindow));
+  } else {
+    wl_egl_window_destroy(eglwindow);
+    wl_surface_destroy(wlsurface);
   }
   return surface;
 }
@@ -1024,10 +1054,12 @@ EGLSurface GLContextEGL::CreateCompatibleSurface(void* aWindow) const {
 
 static void FillContextAttribs(bool es3, bool useGles, nsTArray<EGLint>* out) {
   out->AppendElement(LOCAL_EGL_SURFACE_TYPE);
-#ifdef MOZ_WAYLAND
+  // Offscreen/singleton GL configs. GTK Wayland needs WINDOW_BIT + a dummy
+  // wl_egl_window. Qt Wayland must keep PBUFFER/surfaceless: forcing WINDOW_BIT
+  // here made context creation fail when no wl_compositor dummy was available
+  // and left the browser without a working compositor.
+#if defined(MOZ_WIDGET_GTK) && defined(MOZ_WAYLAND)
   if (GdkIsWaylandDisplay()) {
-    // Wayland on desktop does not support PBuffer or FBO.
-    // We create a dummy wl_egl_window instead.
     out->AppendElement(LOCAL_EGL_WINDOW_BIT);
   } else
 #endif
@@ -1134,7 +1166,7 @@ RefPtr<GLContextEGL> GLContextEGL::CreateWithoutSurface(
     const std::shared_ptr<EglDisplay> egl, const GLContextCreateDesc& desc,
     nsACString* const out_failureId) {
   const auto WithUseGles = [&](const bool useGles) -> RefPtr<GLContextEGL> {
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
     // First try creating a context with no config and no surface, this is what
     // we really want, and seems to be the only way to make selecting software
     // Mesa init properly when it's not the first device.
@@ -1173,7 +1205,7 @@ RefPtr<GLContextEGL> GLContextEGL::CreateWithoutSurface(
 
     auto dummySize = mozilla::gfx::IntSize{16, 16};
     EGLSurface surface = nullptr;
-#ifdef MOZ_WAYLAND
+#if defined(MOZ_WIDGET_GTK) && defined(MOZ_WAYLAND)
     if (GdkIsWaylandDisplay()) {
       surface = GLContextEGL::CreateWaylandOffscreenSurface(*egl, surfaceConfig,
                                                             dummySize);

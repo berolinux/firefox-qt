@@ -288,7 +288,7 @@ GLXLibrary::WrapperScope::~WrapperScope() {
 std::shared_ptr<XlibDisplay> GLXLibrary::GetDisplay() {
   std::shared_ptr<XlibDisplay> display;
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK)
   static const bool kHaveGtk = !!gdk_display_get_default();
   if (kHaveGtk) {
     display = XlibDisplay::Borrow(DefaultXDisplay());

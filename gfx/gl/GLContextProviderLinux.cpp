@@ -11,7 +11,7 @@ namespace mozilla::gl {
 using namespace mozilla::gfx;
 using namespace mozilla::widget;
 
-#ifdef MOZ_X11
+#if defined(MOZ_X11) && defined(MOZ_WIDGET_GTK)
 static class GLContextProviderGLX sGLContextProviderGLX;
 #endif
 static class GLContextProviderEGL sGLContextProviderEGL;
@@ -22,12 +22,13 @@ already_AddRefed<GLContext> GLContextProviderLinux::CreateForCompositorWidget(
   if (gfxVars::UseEGL()) {
     return sGLContextProviderEGL.CreateForCompositorWidget(
         aCompositorWidget, aHardwareWebRender, aForceAccelerated);
-#ifdef MOZ_X11
+#if defined(MOZ_X11) && defined(MOZ_WIDGET_GTK)
   } else {
     return sGLContextProviderGLX.CreateForCompositorWidget(
         aCompositorWidget, aHardwareWebRender, aForceAccelerated);
 #endif
   }
+  return nullptr;
 }
 
 /*static*/
@@ -38,29 +39,31 @@ already_AddRefed<GLContext> GLContextProviderLinux::CreateHeadless(
     // We request EGL if software is required, because we don't know
     // what X11 is using. It could be software or hardware.
     return sGLContextProviderEGL.CreateHeadless(desc, out_failureId);
-#ifdef MOZ_X11
+#if defined(MOZ_X11) && defined(MOZ_WIDGET_GTK)
   } else {
     return sGLContextProviderGLX.CreateHeadless(desc, out_failureId);
 #endif
   }
+  return nullptr;
 }
 
 /*static*/
 GLContext* GLContextProviderLinux::GetGlobalContext() {
   if (gfxVars::UseEGL()) {
     return sGLContextProviderEGL.GetGlobalContext();
-#ifdef MOZ_X11
+#if defined(MOZ_X11) && defined(MOZ_WIDGET_GTK)
   } else {
     return sGLContextProviderGLX.GetGlobalContext();
 #endif
   }
+  return nullptr;
 }
 
 /*static*/
 void GLContextProviderLinux::Shutdown() {
   if (gfxVars::UseEGL()) {
     sGLContextProviderEGL.Shutdown();
-#ifdef MOZ_X11
+#if defined(MOZ_X11) && defined(MOZ_WIDGET_GTK)
   } else {
     sGLContextProviderGLX.Shutdown();
 #endif

@@ -23,7 +23,7 @@
 #  include "UnscaledFontMac.h"
 #endif
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
 #  include "NativeFontResourceFreeType.h"
 #  include "ScaledFontFontconfig.h"
 #  include "UnscaledFontFreeType.h"
@@ -392,7 +392,7 @@ already_AddRefed<NativeFontResource> Factory::CreateNativeFontResource(
 #elif defined(XP_DARWIN)
     case FontType::MAC:
       return NativeFontResourceMac::Create(aData, aSize);
-#elif defined(MOZ_WIDGET_GTK)
+#elif defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
     case FontType::FONTCONFIG:
       return NativeFontResourceFontconfig::Create(aData, aSize);
 #elif defined(MOZ_WIDGET_ANDROID)
@@ -418,7 +418,7 @@ already_AddRefed<UnscaledFont> Factory::CreateUnscaledFontFromFontDescriptor(
     case FontType::MAC:
       return UnscaledFontMac::CreateFromFontDescriptor(aData, aDataLength,
                                                        aIndex);
-#elif defined(MOZ_WIDGET_GTK)
+#elif defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
     case FontType::FONTCONFIG:
       return UnscaledFontFontconfig::CreateFromFontDescriptor(
           aData, aDataLength, aIndex);
@@ -443,7 +443,7 @@ already_AddRefed<ScaledFont> Factory::CreateScaledFontForMacFont(
 }
 #endif
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
 already_AddRefed<ScaledFont> Factory::CreateScaledFontForFontconfigFont(
     const RefPtr<UnscaledFont>& aUnscaledFont, Float aSize,
     RefPtr<SharedFTFace> aFace, FcPattern* aPattern) {

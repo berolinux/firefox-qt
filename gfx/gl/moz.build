@@ -11,7 +11,7 @@ elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "cocoa":
 elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "uikit":
     gl_provider = "EAGL"
     DEFINES["GLES_SILENCE_DEPRECATION"] = 1
-elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
+elif CONFIG["MOZ_WIDGET_TOOLKIT"] in ("gtk", "qt"):
     gl_provider = "Linux"
 elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "android":
     gl_provider = "EGL"
@@ -106,14 +106,18 @@ elif gl_provider == "Linux":
     # as it includes X11 headers which cause conflicts.
     SOURCES += [
         "GLContextProviderLinux.cpp",
+    ]
+    # DMABuf helpers are shared by GTK and Qt; GLX remains GTK/X11 only.
+    SOURCES += [
         "SharedSurfaceDMABUF.cpp",
     ]
     SOURCE_HEADERS += [
         "SharedSurfaceDMABUF.h",
     ]
-    EXPORTS += ["GLContextGLX.h", "GLXLibrary.h"]
-    if CONFIG["MOZ_X11"]:
-        SOURCES += ["GLContextProviderGLX.cpp"]
+    if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
+        EXPORTS += ["GLContextGLX.h", "GLXLibrary.h"]
+        if CONFIG["MOZ_X11"]:
+            SOURCES += ["GLContextProviderGLX.cpp"]
 
 UNIFIED_SOURCES += [
     "AndroidSurfaceTexture.cpp",
@@ -147,7 +151,7 @@ include("/ipc/chromium/chromium-config.mozbuild")
 
 FINAL_LIBRARY = "xul"
 
-if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
+if CONFIG["MOZ_WIDGET_TOOLKIT"] in ("gtk", "qt"):
     CXXFLAGS += CONFIG["MOZ_GTK3_CFLAGS"]
     CFLAGS += CONFIG["MOZ_GTK3_CFLAGS"]
 

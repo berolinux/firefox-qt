@@ -389,7 +389,7 @@ class gfxFcPlatformFontList final : public gfxPlatformFontList {
   RefPtr<FcConfig> mLastConfig;
 
   // The current system font options in effect.
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   // NOTE(emilio): This is a *system cairo* cairo_font_options_t object. As
   // such, it can't be used outside of the few functions defined here.
   cairo_font_options_t* mSystemFontOptions = nullptr;

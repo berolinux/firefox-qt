@@ -22,7 +22,8 @@
 #  include "mozilla/widget/WinCompositorWidget.h"
 #endif
 
-#if defined(MOZ_WIDGET_ANDROID) || defined(MOZ_WIDGET_GTK)
+#if defined(MOZ_WIDGET_ANDROID) || defined(MOZ_WIDGET_GTK) || \
+    defined(MOZ_WIDGET_QT)
 #  include "mozilla/webrender/RenderCompositorEGL.h"
 #endif
 
@@ -251,7 +252,8 @@ UniquePtr<RenderCompositor> RenderCompositor::Create(
   }
 #endif
 
-#if defined(MOZ_WIDGET_ANDROID) || defined(MOZ_WIDGET_GTK)
+#if defined(MOZ_WIDGET_ANDROID) || defined(MOZ_WIDGET_GTK) || \
+    defined(MOZ_WIDGET_QT)
   UniquePtr<RenderCompositor> eglCompositor =
       RenderCompositorEGL::Create(aWidget, aError);
   if (eglCompositor) {
@@ -262,6 +264,10 @@ UniquePtr<RenderCompositor> RenderCompositor::Create(
 #if defined(MOZ_WIDGET_ANDROID)
   // RenderCompositorOGL is not used on android
   return nullptr;
+#elif defined(MOZ_WIDGET_QT)
+  // Qt uses EGL window surfaces (XID / wl_egl_window). RenderCompositorOGL's
+  // GLX-oriented path is not appropriate; fall back to software if EGL fails.
+  return RenderCompositorSWGL::Create(aWidget, aError);
 #elif defined(XP_DARWIN)
   if (gfx::gfxVars::UseWebRenderCompositor() &&
       aWidget->GetCompositorOptions().AllowNativeCompositor()) {

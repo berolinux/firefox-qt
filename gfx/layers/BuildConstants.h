@@ -37,7 +37,7 @@ constexpr bool kIsMacOS =
 #endif
 
 constexpr bool kIsLinux =
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
     true;
 #else
     false;

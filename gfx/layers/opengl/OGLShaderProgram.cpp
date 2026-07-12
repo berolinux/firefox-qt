@@ -115,7 +115,7 @@ void ShaderConfigOGL::SetRoundedClip(bool aEnabled) {
 void ShaderConfigOGL::SetNV12(bool aEnabled) {
   SetFeature(ENABLE_TEXTURE_NV12, aEnabled);
   MOZ_ASSERT(!(mFeatures & ENABLE_TEXTURE_YCBCR));
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   SetFeature(ENABLE_TEXTURE_NV12_GA_SWITCH, aEnabled);
 #endif
 }

@@ -36,6 +36,10 @@
 #  endif
 #endif
 
+#ifdef MOZ_WIDGET_QT
+#  include "mozilla/widget/QtCompositorWidget.h"
+#endif
+
 namespace mozilla {
 using namespace layers;
 using namespace gfx;
@@ -75,7 +79,9 @@ UniquePtr<RenderCompositor> RenderCompositorOGLSWGL::Create(
     return nullptr;
   }
   compositor = compositorOGL;
-#elif defined(MOZ_WIDGET_GTK)
+#elif defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
+  // GPU-accelerated present of SWGL tiles via CompositorOGL + EGL window
+  // surface (avoids the pure CPU QBackingStore / Cairo path on Qt).
   nsCString log;
   RefPtr<CompositorOGL> compositorOGL;
   compositorOGL = new CompositorOGL(aWidget);
@@ -221,7 +227,7 @@ bool RenderCompositorOGLSWGL::RequestFullRender() { return mFullRender; }
 void RenderCompositorOGLSWGL::Pause() {
 #ifdef MOZ_WIDGET_ANDROID
   DestroyEGLSurface();
-#elif defined(MOZ_WIDGET_GTK)
+#elif defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   mCompositor->Pause();
 #endif
 }
@@ -264,7 +270,7 @@ bool RenderCompositorOGLSWGL::Resume() {
 
   gl::GLContextEGL::Cast(GetGLContext())->SetEGLSurfaceOverride(mEGLSurface);
   mCompositor->SetDestinationSurfaceSize(size.ToUnknownSize());
-#elif defined(MOZ_WIDGET_GTK)
+#elif defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   bool resumed = mCompositor->Resume();
   if (!resumed) {
     RenderThread::Get()->HandleWebRenderError(WebRenderError::NEW_SURFACE);

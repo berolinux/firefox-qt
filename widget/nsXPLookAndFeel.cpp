@@ -160,6 +160,7 @@ static const char sIntPrefs[][45] = {
     "ui.pointingDeviceKinds",
     "ui.nativeMenubar",
     "ui.hourCycle",
+    "ui.dialogPrimaryButtonOnLeft",
 };
 
 static_assert(std::size(sIntPrefs) == size_t(LookAndFeel::IntID::End),
