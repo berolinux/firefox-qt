@@ -35,7 +35,7 @@ class FFmpegDecoderModule : public PlatformDecoderModule {
 #endif
   }
   static void Init(const FFmpegLibWrapper* aLib) {
-#if (defined(XP_WIN) || defined(MOZ_WIDGET_GTK) || \
+#if (defined(XP_WIN) || (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)) || \
      defined(MOZ_WIDGET_ANDROID)) &&               \
     defined(MOZ_USE_HWDECODE) && !defined(MOZ_FFVPX_AUDIOONLY)
 #  ifdef XP_WIN
@@ -61,10 +61,11 @@ class FFmpegDecoderModule : public PlatformDecoderModule {
 #  ifdef XP_WIN
         AV_HWDEVICE_TYPE_D3D11VA,
 #  endif
-#  ifdef MOZ_WIDGET_GTK
+#  if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
 #    ifdef MOZ_USE_HWDECODE_VULKAN
         AV_HWDEVICE_TYPE_VULKAN,
 #    endif
+
         AV_HWDEVICE_TYPE_VAAPI,
         AV_HWDEVICE_TYPE_NONE,  // Placeholder for V4L2.
 #  endif
@@ -88,12 +89,12 @@ class FFmpegDecoderModule : public PlatformDecoderModule {
 #  if LIBAVCODEC_VERSION_MAJOR >= 55
         {AV_CODEC_ID_VP9, gfx::gfxVars::UseVP9HwDecode()},
 #  endif
-#  if (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_ANDROID)) && \
+#  if ((defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)) || defined(MOZ_WIDGET_ANDROID)) && \
       LIBAVCODEC_VERSION_MAJOR >= 54
         {AV_CODEC_ID_VP8, gfx::gfxVars::UseVP8HwDecode()},
 #  endif
 
-#  if defined(MOZ_WIDGET_GTK) && !defined(FFVPX_VERSION)
+#  if (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)) && !defined(FFVPX_VERSION)
     // These proprietary video codecs can only be decoded via hardware by using
     // the system ffmpeg, not supported by ffvpx.
 #    if LIBAVCODEC_VERSION_MAJOR >= 55
@@ -142,7 +143,7 @@ class FFmpegDecoderModule : public PlatformDecoderModule {
                     AVCodecToString(entry.mId));
       }
     }
-#endif  // (XP_WIN || MOZ_WIDGET_GTK || MOZ_WIDGET_ANDROID) && MOZ_USE_HWDECODE
+#endif  // (XP_WIN || MOZ_WIDGET_GTK || MOZ_WIDGET_QT || MOZ_WIDGET_ANDROID) && MOZ_USE_HWDECODE
         // && !MOZ_FFVPX_AUDIOONLY
   }
 

@@ -50,8 +50,9 @@ MouseCursorMonitor* MouseCursorMonitor::CreateForScreen(
 std::unique_ptr<MouseCursorMonitor> MouseCursorMonitor::Create(
     const DesktopCaptureOptions& options) {
 #if defined(WEBRTC_USE_PIPEWIRE)
-  if (options.allow_pipewire() && DesktopCapturer::IsRunningUnderWayland() &&
-      options.screencast_stream()) {
+  // Shared PipeWire screencast stream supplies cursor metadata on both
+  // Wayland and X11 when the portal path is active.
+  if (options.allow_pipewire() && options.screencast_stream()) {
     return std::make_unique<MouseCursorMonitorPipeWire>(options);
   }
 #endif  // defined(WEBRTC_USE_PIPEWIRE)

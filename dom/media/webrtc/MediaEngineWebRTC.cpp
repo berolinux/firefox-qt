@@ -10,9 +10,8 @@
 #include "MediaManager.h"
 #include "mozilla/Logging.h"
 
-// Pipewire detection support
+// PipeWire / xdg-desktop-portal ScreenCast support (GTK + Qt Linux).
 #if defined(WEBRTC_USE_PIPEWIRE)
-#  include "modules/desktop_capture/desktop_capturer.h"
 #  include "mozilla/StaticPrefs_media.h"
 #endif
 
@@ -66,10 +65,13 @@ void MediaEngineWebRTC::EnumerateVideoDevices(
                      aMediaSource == MediaSourceEnum::Screen ||
                      aMediaSource == MediaSourceEnum::Window;
   (void)desktopKind;  // Suppress "unused variable" on Windows and Android.
-#if defined(WEBRTC_USE_PIPEWIRE)
+#if defined(WEBRTC_USE_PIPEWIRE) && \
+    (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT))
+  // OS-level portal picker (xdg-desktop-portal ScreenCast + PipeWire).
+  // Capturer creation still validates PipeWire via BaseCapturerPipeWire.
+  // Works on Wayland and X11 when a portal backend is available.
   bool canRequestOsLevelPrompt =
-      mozilla::StaticPrefs::media_webrtc_capture_allow_pipewire() &&
-      webrtc::DesktopCapturer::IsRunningUnderWayland() && desktopKind;
+      mozilla::StaticPrefs::media_webrtc_capture_allow_pipewire() && desktopKind;
 #elif defined(WEBRTC_MAC)
   bool canRequestOsLevelPrompt =
       mozilla::StaticPrefs::

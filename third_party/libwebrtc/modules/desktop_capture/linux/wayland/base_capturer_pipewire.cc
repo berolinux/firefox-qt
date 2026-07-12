@@ -49,8 +49,10 @@ bool BaseCapturerPipeWire::IsSupported() {
   // InitializePipeWire should prevent us from repeatedly initializing PipeWire,
   // but we also don't really expect support to change without the application
   // restarting.
-  static bool supported =
-      DesktopCapturer::IsRunningUnderWayland() && InitializePipeWire();
+  //
+  // Available on both Wayland and X11: capture goes through
+  // xdg-desktop-portal ScreenCast + a PipeWire stream (not a Wayland protocol).
+  static bool supported = InitializePipeWire();
   return supported;
 }
 

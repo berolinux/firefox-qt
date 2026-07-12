@@ -250,7 +250,7 @@
 #include "nsIWebBrowserChrome.h"
 #include "nsIXULRuntime.h"
 #include "nsPIDNSService.h"
-#if defined(MOZ_WIDGET_GTK) || defined(XP_WIN)
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT) || defined(XP_WIN)
 #  include "nsIconChannel.h"
 #endif
 #include "XPCSelfHostedShmem.h"
@@ -8145,7 +8145,7 @@ IPCResult ContentParent::RecvGetSystemIcon(nsIURI* aURI,
     return IPC_OK();
   }
 
-#if defined(MOZ_WIDGET_GTK)
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   Maybe<ByteBuf> bytebuf = Some(ByteBuf{});
   nsresult rv = nsIconChannel::GetIcon(aURI, bytebuf.ptr());
   if (NS_WARN_IF(NS_FAILED(rv))) {
@@ -8167,7 +8167,7 @@ IPCResult ContentParent::RecvGetSystemIcon(nsIURI* aURI,
   return IPC_OK();
 #else
   MOZ_CRASH(
-      "This message is currently implemented only on GTK and Windows "
+      "This message is currently implemented only on GTK, Qt, and Windows "
       "platforms");
 #endif
 }

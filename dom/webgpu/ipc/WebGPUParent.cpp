@@ -25,7 +25,7 @@
 #  include "mozilla/webgpu/SharedTextureD3D11.h"
 #endif
 
-#if defined(XP_LINUX) && !defined(MOZ_WIDGET_ANDROID)
+#if defined(XP_LINUX) && !defined(MOZ_WIDGET_ANDROID) && (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT))
 #  include "mozilla/webgpu/SharedTextureDMABuf.h"
 #endif
 
@@ -104,7 +104,7 @@ extern void* wgpu_server_get_shared_texture_handle(WGPUWebGPUParentPtr aParent,
 }
 #endif
 
-#if defined(XP_LINUX) && !defined(MOZ_WIDGET_ANDROID)
+#if defined(XP_LINUX) && !defined(MOZ_WIDGET_ANDROID) && (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT))
 extern int32_t wgpu_server_get_dma_buf_fd(WGPUWebGPUParentPtr aParent,
                                           WGPUTextureId aId) {
   auto* parent = static_cast<WebGPUParent*>(aParent);
@@ -147,7 +147,8 @@ extern "C" bool wgpu_server_get_linux_dmabuf_modifiers(
 }
 #endif
 
-#if defined(XP_LINUX) && !defined(MOZ_WIDGET_ANDROID)
+#if defined(XP_LINUX) && !defined(MOZ_WIDGET_ANDROID) && \
+    (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT))
 extern ffi::WGPUDMABufInfo wgpu_server_get_dma_buf_info(
     WGPUWebGPUParentPtr aParent, WGPUTextureId aId) {
   ffi::WGPUDMABufInfo info = {};

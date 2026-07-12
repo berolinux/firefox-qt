@@ -39,3 +39,10 @@ elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
     if CONFIG["MOZ_ENABLE_DBUS"]:
         LOCAL_INCLUDES += ["/dom/system/linux"]
         CXXFLAGS += CONFIG["MOZ_GTK3_CFLAGS"]
+elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "qt":
+    if CONFIG["MOZ_ENABLE_DBUS"]:
+        LOCAL_INCLUDES += [
+            "/dom/geolocation",
+            "/widget/qt",
+        ]
+        CXXFLAGS += CONFIG["MOZ_QT6_CFLAGS"]

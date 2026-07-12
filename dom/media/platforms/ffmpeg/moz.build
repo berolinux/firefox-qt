@@ -21,7 +21,7 @@ DIRS += [
 
 UNIFIED_SOURCES += ["FFmpegRuntimeLinker.cpp"]
 
-if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
+if CONFIG["MOZ_WIDGET_TOOLKIT"] in ("gtk", "qt"):
     include("/ipc/chromium/chromium-config.mozbuild")
     UNIFIED_SOURCES += ["VALibWrapper.cpp"]
     SOURCE_HEADERS += [

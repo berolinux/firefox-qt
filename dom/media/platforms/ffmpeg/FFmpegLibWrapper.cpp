@@ -11,7 +11,7 @@
 #endif
 #include "PlatformDecoderModule.h"
 #include "prlink.h"
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
 #  include "VALibWrapper.h"
 #  include "mozilla/gfx/gfxVars.h"
 #  include "mozilla/widget/DMABufDevice.h"
@@ -345,7 +345,7 @@ FFmpegLibWrapper::LinkResult FFmpegLibWrapper::Link() {
                         AV_FUNC_58 | AV_FUNC_59 | AV_FUNC_60 | AV_FUNC_61 |
                             AV_FUNC_62 | AV_FUNC_63)
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   AV_FUNC_OPTION_SILENT(av_hwdevice_hwconfig_alloc,
                         AV_FUNC_AVUTIL_58 | AV_FUNC_AVUTIL_59 |
                             AV_FUNC_AVUTIL_60 | AV_FUNC_AVUTIL_61 |
@@ -491,7 +491,7 @@ void FFmpegLibWrapper::UpdateLogLevel() {
   }
 }
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
 bool FFmpegLibWrapper::IsVAAPIAvailable() const {
 #  define VA_FUNC_LOADED(func) ((func) != nullptr)
   return VA_FUNC_LOADED(avcodec_get_hw_config) &&

@@ -12,7 +12,7 @@
 #  include "mozilla/webgpu/SharedTextureD3D11.h"
 #endif
 
-#if defined(XP_LINUX) && !defined(MOZ_WIDGET_ANDROID)
+#if defined(XP_LINUX) && !defined(MOZ_WIDGET_ANDROID) && (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT))
 #  include "mozilla/webgpu/SharedTextureDMABuf.h"
 #endif
 
@@ -34,7 +34,7 @@ UniquePtr<SharedTexture> SharedTexture::Create(
 #ifdef XP_WIN
   texture = SharedTextureD3D11::Create(aParent, aDeviceId, aWidth, aHeight,
                                        aFormat, aUsage);
-#elif defined(XP_LINUX) && !defined(MOZ_WIDGET_ANDROID)
+#elif defined(XP_LINUX) && !defined(MOZ_WIDGET_ANDROID) && (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT))
   texture = SharedTextureDMABuf::Create(aParent, aDeviceId, aWidth, aHeight,
                                         aFormat, aUsage);
 #elif defined(XP_MACOSX)
