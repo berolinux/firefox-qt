@@ -2398,6 +2398,10 @@ class SocketProcessSandboxPolicy final : public SandboxPolicyCommon {
       case __NR_getrusage:
         return Allow();
 
+      // fontconfig / GIO probe filesystem type (see content/RDD policies).
+      CASES_FOR_fstatfs:
+        return Allow();
+
       case __NR_ioctl: {
         Arg<unsigned long> request(1);
         auto shifted_type = request & kIoctlTypeMask;
@@ -2500,6 +2504,10 @@ class UtilitySandboxPolicy : public SandboxPolicyCommon {
   ResultExpr EvaluateSyscall(int sysno) const override {
     switch (sysno) {
       case __NR_getrusage:
+        return Allow();
+
+      // fontconfig / GIO / media stacks probe FS type (same as content/RDD).
+      CASES_FOR_fstatfs:
         return Allow();
 
       // Required by FFmpeg

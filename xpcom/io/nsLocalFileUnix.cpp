@@ -46,8 +46,10 @@
 #include "private/pprio.h"
 #include "prlink.h"
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
 #  include "nsIGIOService.h"
+#endif
+#ifdef MOZ_WIDGET_GTK
 #  ifdef MOZ_ENABLE_DBUS
 #    include "mozilla/WidgetUtilsGtk.h"
 #    include "mozilla/widget/AsyncDBus.h"
@@ -2401,7 +2403,7 @@ nsLocalFile::Reveal() {
     return NS_ERROR_FILE_ACCESS_DENIED;
   }
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   nsCOMPtr<nsIGIOService> giovfs = do_GetService(NS_GIOSERVICE_CONTRACTID);
   if (!giovfs) {
     return NS_ERROR_FAILURE;
@@ -2426,7 +2428,7 @@ nsLocalFile::Launch() {
     return NS_ERROR_FILE_ACCESS_DENIED;
   }
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   nsCOMPtr<nsIGIOService> giovfs = do_GetService(NS_GIOSERVICE_CONTRACTID);
   if (!giovfs) {
     return NS_ERROR_FAILURE;
