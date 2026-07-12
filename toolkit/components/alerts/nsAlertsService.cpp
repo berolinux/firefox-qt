@@ -266,13 +266,16 @@ NS_IMETHODIMP nsAlertsService::ShowAlertWithCallbacks(
     effectiveCallbacks = new AlertCaptureCallbacks(aAlert, aAlertCallbacks);
   }
 
-  // Check if there is an optional service that handles system-level
-  // notifications
-  if (StaticPrefs::alerts_useSystemBackend()) {
-    if (!mBackend) {
-      return NS_ERROR_NOT_AVAILABLE;
+  // Prefer the platform system backend when available.
+  if (StaticPrefs::alerts_useSystemBackend() && mBackend) {
+    nsresult rvBackend =
+        mBackend->ShowAlertWithCallbacks(aAlert, effectiveCallbacks);
+    if (NS_SUCCEEDED(rvBackend)) {
+      return rvBackend;
     }
-    return mBackend->ShowAlertWithCallbacks(aAlert, effectiveCallbacks);
+    // Fall through to XUL so users still get a notification if D-Bus/FDO
+    // fails (e.g. missing server, marshalling errors).
+    NS_WARNING("system alerts backend failed; falling back to XUL alerts");
   }
 
   if (!ShouldShowAlert()) {
@@ -283,7 +286,7 @@ NS_IMETHODIMP nsAlertsService::ShowAlertWithCallbacks(
     return NS_OK;
   }
 
-  // Use XUL notifications as a fallback if above methods have failed.
+  // In-browser XUL notifications (also the fallback if system backend failed).
   nsCOMPtr<nsIAlertsService> xulBackend(nsXULAlerts::GetInstance());
   NS_ENSURE_TRUE(xulBackend, NS_ERROR_FAILURE);
   return xulBackend->ShowAlertWithCallbacks(aAlert, effectiveCallbacks);

@@ -34,7 +34,7 @@ See [this documentation](https://firefox-source-docs.mozilla.org/browser/compone
 
 ### A grouping of buttons
 
-Primary button order will be set automatically based on `class="primary"`, `type="submit"` or `autofocus` attributes. Set `slot="primary"` on a primary button that does not have primary styling to set its position. The primary button's position varies by platform: on Windows, it appears on the left, while on Linux and macOS, it appears on the right.
+Primary button order will be set automatically based on `class="primary"`, `type="submit"` or `autofocus` attributes. Set `slot="primary"` on a primary button that does not have primary styling to set its position. The primary button's position follows the platform look-and-feel (on Qt, `QStyle::SH_DialogButtonLayout`): primary on the left for Windows/KDE-style layouts, on the right for GNOME/macOS-style layouts.
 
 1. Setting button order automatically:
 

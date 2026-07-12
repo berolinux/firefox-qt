@@ -7,17 +7,24 @@ with Files("**"):
     SCHEDULES.exclusive = ["linux"]
 
 SOURCES += [
-    "nsAlertsIconListener.cpp",
-    "nsSystemAlertsService.cpp",
-]
-
-SOURCES += [
     "nsGIOService.cpp",
 ]
 
-XPCOM_MANIFESTS += [
-    "components.conf",
-]
+if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
+    SOURCES += [
+        "nsAlertsIconListener.cpp",
+        "nsSystemAlertsService.cpp",
+    ]
+
+if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
+    XPCOM_MANIFESTS += [
+        "components.conf",
+    ]
+else:
+    # Qt: GIO service only.
+    XPCOM_MANIFESTS += [
+        "components.gio.conf",
+    ]
 
 FINAL_LIBRARY = "xul"
 
@@ -26,7 +33,10 @@ LOCAL_INCLUDES += [
 ]
 
 CXXFLAGS += CONFIG["GLIB_CFLAGS"]
-CXXFLAGS += CONFIG["MOZ_GTK3_CFLAGS"]
+# gdesktopappinfo lives in gio-unix.
+CXXFLAGS += ["-I/usr/include/gio-unix-2.0"]
+if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
+    CXXFLAGS += CONFIG["MOZ_GTK3_CFLAGS"]
 
 SOURCE_HEADERS += [
     "nsAlertsIconListener.h",

@@ -14,7 +14,6 @@
 #include "nsPrintfCString.h"
 #include "mozilla/GRefPtr.h"
 #include "mozilla/GUniquePtr.h"
-#include "mozilla/WidgetUtilsGtk.h"
 #include "mozilla/ScopeExit.h"
 #include "mozilla/StaticPrefs_widget.h"
 #include "mozilla/net/DNS.h"
@@ -22,17 +21,28 @@
 
 #include <gio/gio.h>
 #include <glib.h>
-#include <gtk/gtk.h>
 #include <gio/gdesktopappinfo.h>
-#ifdef MOZ_ENABLE_DBUS
+#ifdef MOZ_WIDGET_GTK
+#  include "mozilla/WidgetUtilsGtk.h"
+#  include <gtk/gtk.h>
+#endif
+#if defined(MOZ_ENABLE_DBUS) && defined(MOZ_WIDGET_GTK)
 #  include <fcntl.h>
 #  include <dlfcn.h>
 #  include "mozilla/widget/AsyncDBus.h"
-#  include "mozilla/WidgetUtilsGtk.h"
 #  include "nsAppShell.h"
 #endif
 
 using namespace mozilla;
+
+#ifndef MOZ_WIDGET_GTK
+namespace mozilla::widget {
+enum class PortalKind { MimeHandler, OpenUri };
+inline bool ShouldUsePortal(PortalKind) { return false; }
+inline bool IsRunningUnderFlatpak() { return false; }
+inline bool IsRunningUnderSnap() { return false; }
+}  // namespace mozilla::widget
+#endif
 
 #ifdef MOZ_LOGGING
 #  include "mozilla/Logging.h"
@@ -195,10 +205,15 @@ nsFlatpakHandlerApp::LaunchWithURI(
   // The TMPDIR where files are downloaded when user choose to open them
   // needs to be accessible from sandbox and host. The default settings
   // TMPDIR=/tmp is accessible only to the sandbox. That can be the reason
-  // why the gtk_show_uri fails there.
+  // why URI launching fails there.
   // The workaround is to set TMPDIR environment variable in sandbox to
   // $XDG_CACHE_HOME/tmp before executing Firefox.
+#ifdef MOZ_WIDGET_GTK
   gtk_show_uri(nullptr, spec.get(), GDK_CURRENT_TIME, getter_Transfers(error));
+#else
+  g_app_info_launch_default_for_uri(spec.get(), nullptr,
+                                    getter_Transfers(error));
+#endif
   if (error) {
     NS_WARNING(
         nsPrintfCString("Cannot launch flatpak handler: %s", error->message)
@@ -521,6 +536,7 @@ static NS_IMETHODIMP LaunchWithURIImpl(RefPtr<GAppInfo> aInfo, nsIURI* aUri,
 NS_IMETHODIMP
 nsGIOMimeApp::LaunchWithURI(nsIURI* aUri,
                             mozilla::dom::BrowsingContext* aBrowsingContext) {
+#ifdef MOZ_WIDGET_GTK
   auto promise = mozilla::widget::RequestWaylandFocusPromise();
   if (!promise) {
     return LaunchWithURIImpl(mApp, aUri);
@@ -536,6 +552,9 @@ nsGIOMimeApp::LaunchWithURI(nsIURI* aUri,
         LaunchWithURIImpl(app, uri);
       });
   return NS_OK;
+#else
+  return LaunchWithURIImpl(mApp, aUri);
+#endif
 }
 
 class GIOUTF8StringEnumerator final : public nsStringEnumeratorBase {
@@ -736,7 +755,9 @@ nsGIOService::GetAppForURIScheme(const nsACString& aURIScheme,
     }
     GUniquePtr<GError> error;
 
+#if defined(MOZ_ENABLE_DBUS) && defined(MOZ_WIDGET_GTK)
     nsAppShell::DBusConnectionCheck();
+#endif
     RefPtr<GDBusProxy> proxy = dont_AddRef(g_dbus_proxy_new_for_bus_sync(
         G_BUS_TYPE_SESSION, G_DBUS_PROXY_FLAGS_NONE, nullptr, OPENURI_BUS_NAME,
         OPENURI_OBJECT_PATH, OPENURI_INTERFACE_NAME,
@@ -938,6 +959,7 @@ static nsresult ShowURIImpl(nsIURI* aURI, const char* aXDGToken = nullptr) {
 }
 
 nsresult nsGIOService::ShowURI(nsIURI* aURI) {
+#ifdef MOZ_WIDGET_GTK
   auto promise = mozilla::widget::RequestWaylandFocusPromise();
   if (!promise) {
     LOG("nsGIOService::ShowURI() failed to get focus promise, fallback to "
@@ -957,6 +979,9 @@ nsresult nsGIOService::ShowURI(nsIURI* aURI) {
         ShowURIImpl(uri);
       });
   return NS_OK;
+#else
+  return ShowURIImpl(aURI);
+#endif
 }
 
 static nsresult LaunchPathImpl(const nsACString& aPath,
@@ -983,6 +1008,7 @@ static nsresult LaunchPathImpl(const nsACString& aPath,
 }
 
 static nsresult LaunchPath(const nsACString& aPath) {
+#ifdef MOZ_WIDGET_GTK
   auto promise = mozilla::widget::RequestWaylandFocusPromise();
   if (!promise) {
     LOG("LaunchPath() failed to get focus promise, fallback to "
@@ -1002,6 +1028,9 @@ static nsresult LaunchPath(const nsACString& aPath) {
         LaunchPathImpl(path);
       });
   return NS_OK;
+#else
+  return LaunchPathImpl(aPath);
+#endif
 }
 
 nsresult nsGIOService::LaunchFile(const nsACString& aPath) {
@@ -1037,7 +1066,7 @@ static nsresult RevealDirectory(nsIFile* aFile, bool aForce) {
   return LaunchPath(path);
 }
 
-#ifdef MOZ_ENABLE_DBUS
+#if defined(MOZ_ENABLE_DBUS) && defined(MOZ_WIDGET_GTK)
 // Classic DBus
 const char kFreedesktopFileManagerName[] = "org.freedesktop.FileManager1";
 const char kFreedesktopFileManagerPath[] = "/org/freedesktop/FileManager1";
@@ -1057,6 +1086,7 @@ static nsresult RevealFileViaDBusWithProxy(GDBusProxy* aProxy, nsIFile* aFile,
   char* activationToken = nullptr;
   auto releaseActivationToken = MakeScopeExit([&] { g_free(activationToken); });
 
+#ifdef MOZ_WIDGET_GTK
   // Try to get activation token from GdkDisplay
   if (GdkDisplay* display = gdk_display_get_default()) {
     if (GdkAppLaunchContext* context =
@@ -1066,11 +1096,14 @@ static nsresult RevealFileViaDBusWithProxy(GDBusProxy* aProxy, nsIFile* aFile,
       g_object_unref(context);
     }
   }
+#endif
 
   const int32_t timeout =
       StaticPrefs::widget_gtk_file_manager_show_items_timeout_ms();
 
+#if defined(MOZ_ENABLE_DBUS) && defined(MOZ_WIDGET_GTK)
   nsAppShell::DBusConnectionCheck();
+#endif
   if (!(strcmp(aMethod, kMethodOpenDirectory) == 0)) {
     GUniquePtr<gchar> uri(g_filename_to_uri(path.get(), nullptr, nullptr));
     if (!uri) {
@@ -1170,7 +1203,7 @@ static void RevealFileViaDBusPortal(nsIFile* aFile) {
 #endif
 
 nsresult nsGIOService::RevealFile(nsIFile* aFile) {
-#ifdef MOZ_ENABLE_DBUS
+#if defined(MOZ_ENABLE_DBUS) && defined(MOZ_WIDGET_GTK)
   if (ShouldUsePortal(widget::PortalKind::OpenUri)) {
     RevealFileViaDBusPortal(aFile);
   } else if (NS_SUCCEEDED(RevealDirectory(aFile, /* aForce = */ false))) {

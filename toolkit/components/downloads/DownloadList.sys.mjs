@@ -497,6 +497,12 @@ export class DownloadSummary {
   progressCurrentBytes = 0;
 
   /**
+   * Number of downloads in the current batch (in progress or otherwise not
+   * stopped for the active summary). Used for taskbar badge counts.
+   */
+  activeDownloadCount = 0;
+
+  /**
    * This method may be called once to bind this object to a DownloadList.
    *
    * Views on the summarized data can be registered before this object is bound
@@ -566,6 +572,7 @@ export class DownloadSummary {
     let allUnknownSize = true;
     let progressTotalBytes = 0;
     let progressCurrentBytes = 0;
+    let activeDownloadCount = 0;
 
     // Recalculate the aggregated state.  See the description of the individual
     // properties for an explanation of the summarization logic.
@@ -574,6 +581,7 @@ export class DownloadSummary {
         // A batch ends when all downloads are stopped, so since there is a
         // running batch, not all have stopped.
         allHaveStopped = false;
+        activeDownloadCount += 1;
         if (download.hasProgress) {
           allUnknownSize = false;
           progressTotalBytes += download.totalBytes;
@@ -589,7 +597,8 @@ export class DownloadSummary {
       this.allHaveStopped == allHaveStopped &&
       this.allUnknownSize == allUnknownSize &&
       this.progressTotalBytes == progressTotalBytes &&
-      this.progressCurrentBytes == progressCurrentBytes
+      this.progressCurrentBytes == progressCurrentBytes &&
+      this.activeDownloadCount == activeDownloadCount
     ) {
       return;
     }
@@ -598,6 +607,7 @@ export class DownloadSummary {
     this.allUnknownSize = allUnknownSize;
     this.progressTotalBytes = progressTotalBytes;
     this.progressCurrentBytes = progressCurrentBytes;
+    this.activeDownloadCount = activeDownloadCount;
 
     // Notify all the views that our properties changed.
     for (let view of this._views) {

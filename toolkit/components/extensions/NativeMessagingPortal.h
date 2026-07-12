@@ -5,70 +5,71 @@
 #ifndef mozilla_extensions_NativeMessagingPortal_h
 #define mozilla_extensions_NativeMessagingPortal_h
 
-#include "nsINativeMessagingPortal.h"
+// GTK builds keep the GIO/GDBus implementation; Qt uses QtDBus.
+#if defined(MOZ_WIDGET_GTK)
+#  include "NativeMessagingPortalGio.h"
+#else
 
-#include <gio/gio.h>
+#  include "nsINativeMessagingPortal.h"
+#  include "mozilla/UniquePtr.h"
+#  include "nsString.h"
 
-#include "mozilla/GRefPtr.h"
-#include "mozilla/UniquePtr.h"
+#  include <deque>
+#  include <string>
+#  include <unordered_map>
 
-#include <deque>
-#include <unordered_map>
-
-namespace mozilla::extensions {
+namespace mozilla {
+namespace dom {
+class Promise;
+}
+namespace extensions {
 
 enum class SessionState { Active, Closing, Error };
 
-class NativeMessagingPortal : public nsINativeMessagingPortal {
+class NativeMessagingPortalBackend;
+
+/**
+ * WebExtensions xdg-desktop-portal client using QtDBus (no GIO).
+ * Interface: org.freedesktop.portal.WebExtensions
+ */
+class NativeMessagingPortal final : public nsINativeMessagingPortal {
  public:
   NS_DECL_NSINATIVEMESSAGINGPORTAL
   NS_DECL_ISUPPORTS
 
   static already_AddRefed<NativeMessagingPortal> GetSingleton();
 
- private:
-  NativeMessagingPortal();
-  virtual ~NativeMessagingPortal();
-
-  RefPtr<GDBusProxy> mProxy;
-  bool mInitialized = false;
-  RefPtr<GCancellable> mCancellable;
-
-  struct DelayedCall;
-  std::deque<UniquePtr<DelayedCall>> mPending;
-
+  bool mReady = false;
+  bool mAvailable = false;
   using SessionsMap = std::unordered_map<std::string, SessionState>;
   SessionsMap mSessions;
+  void DrainPending();
 
-  // Callbacks
-  static void OnProxyReady(GObject* source, GAsyncResult* result,
-                           gpointer user_data);
-  void MaybeDelayedIsAvailable(dom::Promise&, GVariant*);
-  void MaybeDelayedCreateSession(dom::Promise&, GVariant*);
-  static void OnCreateSessionDone(GObject* source, GAsyncResult* result,
-                                  gpointer user_data);
-  static void OnCloseSessionProxyReady(GObject* source, GAsyncResult* result,
-                                       gpointer user_data);
-  static void OnCloseSessionDone(GObject* source, GAsyncResult* result,
-                                 gpointer user_data);
-  static void OnSessionClosedSignal(GDBusConnection* bus,
-                                    const gchar* sender_name,
-                                    const gchar* object_path,
-                                    const gchar* interface_name,
-                                    const gchar* signal_name,
-                                    GVariant* parameters, gpointer user_data);
-  static void OnGetManifestDone(GObject* source, GAsyncResult* result,
-                                gpointer user_data);
-  static void OnStartDone(GObject* source, GAsyncResult* result,
-                          gpointer user_data);
-  static void OnStartRequestResponseSignal(
-      GDBusConnection* bus, const gchar* sender_name, const gchar* object_path,
-      const gchar* interface_name, const gchar* signal_name,
-      GVariant* parameters, gpointer user_data);
-  static void OnGetPipesDone(GObject* source, GAsyncResult* result,
-                             gpointer user_data);
+ private:
+  friend class NativeMessagingPortalBackend;
+  friend class NMPResponseBridge;
+  friend class NMPSessionClosedBridge;
+
+  NativeMessagingPortal();
+  ~NativeMessagingPortal();
+
+  struct DelayedCall {
+    enum class Kind { Available, CreateSession };
+    Kind kind = Kind::Available;
+    RefPtr<dom::Promise> promise;
+    nsCString token;
+  };
+  std::deque<UniquePtr<DelayedCall>> mPending;
+
+  void DoIsAvailable(dom::Promise& aPromise);
+  void DoCreateSession(dom::Promise& aPromise, const nsACString& aToken);
+
+  UniquePtr<NativeMessagingPortalBackend> mBackend;
 };
 
-}  // namespace mozilla::extensions
+}  // namespace extensions
+}  // namespace mozilla
+
+#endif  // !MOZ_WIDGET_GTK
 
 #endif  // mozilla_extensions_NativeMessagingPortal_h
