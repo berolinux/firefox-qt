@@ -77,6 +77,18 @@ elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
         ]
         include("/ipc/chromium/chromium-config.mozbuild")
 
+elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "qt":
+    # FreeDesktop + Plasma: xdg-settings/xdg-mime, plasma wallpaper.
+    XPIDL_SOURCES += [
+        "nsIUnixShellService.idl",
+    ]
+    SOURCES += [
+        "nsQtShellService.cpp",
+    ]
+    CXXFLAGS += CONFIG["MOZ_QT6_CFLAGS"]
+    OS_LIBS += CONFIG["MOZ_QT6_LIBS"]
+    # Qt headers conflict with -fvisibility=hidden wrappers.
+    NoVisibilityFlags()
 
 elif CONFIG["OS_ARCH"] == "WINNT":
     XPIDL_SOURCES += [

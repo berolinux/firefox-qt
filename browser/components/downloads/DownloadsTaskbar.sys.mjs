@@ -56,12 +56,20 @@ defineResettableGetter(gInterfaces, "macTaskbarProgress", function () {
 });
 
 defineResettableGetter(gInterfaces, "gtkTaskbarProgress", function () {
-  return (
-    "@mozilla.org/widget/taskbarprogress/gtk;1" in Cc &&
-    Cc["@mozilla.org/widget/taskbarprogress/gtk;1"].getService(
+  // GTK and Qt Linux both expose nsIGtkTaskbarProgress (setPrimaryWindow).
+  // Qt also registers taskbarprogress/qt;1; prefer gtk;1 when present (both
+  // toolkits register that contract on their build).
+  if ("@mozilla.org/widget/taskbarprogress/gtk;1" in Cc) {
+    return Cc["@mozilla.org/widget/taskbarprogress/gtk;1"].getService(
       Ci.nsIGtkTaskbarProgress
-    )
-  );
+    );
+  }
+  if ("@mozilla.org/widget/taskbarprogress/qt;1" in Cc) {
+    return Cc["@mozilla.org/widget/taskbarprogress/qt;1"].getService(
+      Ci.nsIGtkTaskbarProgress
+    );
+  }
+  return null;
 });
 
 /**
@@ -260,6 +268,20 @@ class DownloadsTaskbarInstance {
     }
   }
 
+  #updateActiveCount() {
+    const count = this.#summary ? this.#summary.activeDownloadCount || 0 : 0;
+    for (let progress of this.#taskbarProgresses) {
+      try {
+        // Linux (GTK/Qt) nsIGtkTaskbarProgress; other platforms no-op / throw.
+        progress.QueryInterface(Ci.nsIGtkTaskbarProgress).setActiveDownloadCount(
+          count
+        );
+      } catch (e) {
+        // Backend without setActiveDownloadCount.
+      }
+    }
+  }
+
   // DownloadSummary view
 
   onSummaryChanged() {
@@ -267,6 +289,8 @@ class DownloadsTaskbarInstance {
     if (!this.#taskbarProgresses.size) {
       return;
     }
+
+    this.#updateActiveCount();
 
     if (this.#summary.allHaveStopped || this.#summary.progressTotalBytes == 0) {
       this.updateProgress(Ci.nsITaskbarProgress.STATE_NO_PROGRESS, 0, 0);

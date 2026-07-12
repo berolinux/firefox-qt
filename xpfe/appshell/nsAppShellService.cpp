@@ -506,7 +506,8 @@ nsresult nsAppShellService::JustCreateTopWindow(
     widgetInitData.mHasRemoteContent = true;
   }
 
-#if defined(MOZ_WIDGET_GTK) || defined(XP_WIN) || defined(XP_MACOSX)
+#if defined(MOZ_WIDGET_GTK) || defined(XP_WIN) || defined(XP_MACOSX) || \
+    defined(MOZ_WIDGET_QT)
   if (aChromeMask & nsIWebBrowserChrome::CHROME_MEDIA_PIP) {
     widgetInitData.mPiPType = mozilla::widget::PiPType::MediaPiP;
   }

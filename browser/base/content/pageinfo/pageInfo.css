@@ -88,3 +88,31 @@ td > input,
   flex: 1;
   margin-top: 1px; /* same margin as adjacent label */
 }
+
+/* Keep permission radios/checkboxes inside the window: the trailing
+ * radiogroup is right-aligned via a flex spacer and used to overflow when
+ * indicators take space. */
+#permList .permission > hbox {
+  min-width: 0;
+}
+
+#permList radiogroup {
+  flex-shrink: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+#permList radio {
+  flex-shrink: 0;
+}
+
+/* When "Use Default" is checked the radios are disabled (command broadcaster).
+ * Make that obvious: muted controls, no pointer affordance. */
+#permList radio[disabled] {
+  opacity: 0.55;
+}
+
+#permList radio[disabled] > .radio-check {
+  opacity: 0.9;
+}

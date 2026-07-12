@@ -324,68 +324,73 @@ Preferences.addSetting({
   },
 });
 
-Preferences.addSetting({
-  id: "alwaysCheckDefault",
-  pref: "browser.shell.checkDefaultBrowser",
-  setup: emitChange => {
-    if (!DefaultBrowserHelper.canCheck) {
-      return undefined;
-    }
-    return DefaultBrowserHelper.pollForDefaultChanges(emitChange);
-  },
-  /**
-   * Show button for setting browser as default browser or information that
-   * browser is already the default browser.
-   */
-  visible: () => DefaultBrowserHelper.canCheck,
-  disabled: (_, setting) =>
-    !DefaultBrowserHelper.canCheck ||
-    setting.locked ||
-    DefaultBrowserHelper.isBrowserDefault,
-});
-
-Preferences.addSetting({
-  id: "isDefaultPane",
-  deps: ["alwaysCheckDefault"],
-  visible: () =>
-    DefaultBrowserHelper.canCheck &&
-    DefaultBrowserHelper.isBrowserDefault &&
-    Services.policies.isAllowed("setDefaultBrowser") &&
-    !Services.prefs.prefIsLocked("pref.general.disable_button.default_browser"),
-});
-
-Preferences.addSetting({
-  id: "isNotDefaultPane",
-  deps: ["alwaysCheckDefault"],
-  visible: () =>
-    DefaultBrowserHelper.canCheck &&
-    !DefaultBrowserHelper.isBrowserDefault &&
-    Services.policies.isAllowed("setDefaultBrowser") &&
-    !Services.prefs.prefIsLocked("pref.general.disable_button.default_browser"),
-  onUserClick: (e, { alwaysCheckDefault }) => {
-    if (!DefaultBrowserHelper.canCheck) {
-      return;
-    }
-    const setDefaultButton = /** @type {MozButton} */ (e.target);
-
-    if (!setDefaultButton) {
-      return;
-    }
-    if (setDefaultButton.disabled) {
-      return;
-    }
-
+// Shell-service settings require a platform shell service (HAVE_SHELL_SERVICE).
+// Without it, Preferences.addSetting throws and aborts main.js load.
+if (AppConstants.HAVE_SHELL_SERVICE) {
+  Preferences.addSetting({
+    id: "alwaysCheckDefault",
+    pref: "browser.shell.checkDefaultBrowser",
+    setup: emitChange => {
+      if (!DefaultBrowserHelper.canCheck) {
+        return undefined;
+      }
+      return DefaultBrowserHelper.pollForDefaultChanges(emitChange);
+    },
     /**
-     * Disable the set default button, so that the user
-     * doesn't try to hit it again while browser is being set to default.
+     * Show button for setting browser as default browser or information that
+     * browser is already the default browser.
      */
-    setDefaultButton.disabled = true;
-    alwaysCheckDefault.value = true;
-    DefaultBrowserHelper.setDefaultBrowser().finally(() => {
-      setDefaultButton.disabled = false;
-    });
-  },
-});
+    visible: () => DefaultBrowserHelper.canCheck,
+    disabled: (_, setting) =>
+      !DefaultBrowserHelper.canCheck ||
+      setting.locked ||
+      DefaultBrowserHelper.isBrowserDefault,
+  });
+
+  Preferences.addSetting({
+    id: "isDefaultPane",
+    deps: ["alwaysCheckDefault"],
+    visible: () =>
+      DefaultBrowserHelper.canCheck &&
+      DefaultBrowserHelper.isBrowserDefault &&
+      Services.policies.isAllowed("setDefaultBrowser") &&
+      !Services.prefs.prefIsLocked("pref.general.disable_button.default_browser"),
+  });
+
+  Preferences.addSetting({
+    id: "isNotDefaultPane",
+    deps: ["alwaysCheckDefault"],
+    visible: () =>
+      DefaultBrowserHelper.canCheck &&
+      !DefaultBrowserHelper.isBrowserDefault &&
+      Services.policies.isAllowed("setDefaultBrowser") &&
+      !Services.prefs.prefIsLocked("pref.general.disable_button.default_browser"),
+    onUserClick: (e, { alwaysCheckDefault }) => {
+      if (!DefaultBrowserHelper.canCheck) {
+        return;
+      }
+      const setDefaultButton = /** @type {MozButton} */ (e.target);
+
+      if (!setDefaultButton) {
+        return;
+      }
+      if (setDefaultButton.disabled) {
+        return;
+      }
+
+      /**
+       * Disable the set default button, so that the user
+       * doesn't try to hit it again while browser is being set to default.
+       */
+      setDefaultButton.disabled = true;
+      alwaysCheckDefault.value = true;
+      DefaultBrowserHelper.setDefaultBrowser().finally(() => {
+        setDefaultButton.disabled = false;
+      });
+    },
+  });
+
+}
 
 // AI Control pref settings
 Preferences.addSetting({
@@ -515,16 +520,29 @@ function createStartupConfig(hidden = false) {
           },
         ],
       },
-      {
-        id: "alwaysCheckDefault",
-        l10nId: "always-check-default",
-      },
+      ...(AppConstants.HAVE_SHELL_SERVICE
+        ? [
+            {
+              id: "alwaysCheckDefault",
+              l10nId: "always-check-default",
+            },
+          ]
+        : []),
     ],
   };
 }
 
 SettingGroupManager.registerGroups({
-  defaultBrowser: createDefaultBrowserConfig(),
+  // Without a shell service the settings are not registered; keep a hidden
+  // empty group so <setting-group groupid="defaultBrowser"> does not throw.
+  defaultBrowser: AppConstants.HAVE_SHELL_SERVICE
+    ? createDefaultBrowserConfig()
+    : {
+        l10nId: "home-default-browser-title",
+        headingLevel: 2,
+        items: [],
+        hidden: true,
+      },
   startup: createStartupConfig(
     Services.prefs.getBoolPref("browser.settings-redesign.enabled", false)
   ),
