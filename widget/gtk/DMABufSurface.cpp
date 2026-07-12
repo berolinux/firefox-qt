@@ -60,7 +60,9 @@
 #include "mozilla/layers/LayersSurfaces.h"
 #include "mozilla/widget/SHMBufSurface.h"
 #include "mozilla/widget/va_drmcommon.h"
-#include "nsGtkUtils.h"
+#ifdef MOZ_WIDGET_GTK
+#  include "nsGtkUtils.h"
+#endif
 #include "nsIMemoryReporter.h"
 
 /* C++ / C typecast macros for special EGL handle values */
