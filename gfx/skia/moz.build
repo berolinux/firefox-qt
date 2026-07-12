@@ -558,7 +558,7 @@ if CONFIG['MOZ_WIDGET_TOOLKIT'] in ('cocoa', 'uikit'):
     SOURCES += [
         'skia/src/ports/SkTypeface_mac_ct.cpp',
     ]
-if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'gtk':
+if CONFIG['MOZ_WIDGET_TOOLKIT'] in ('gtk', 'qt'):
     UNIFIED_SOURCES += [
         'skia/src/ports/SkLog_stdio.cpp',
         'skia/src/ports/SkOSFile_posix.cpp',
@@ -653,7 +653,7 @@ LOCAL_INCLUDES += [
     "/gfx/harfbuzz/src",
 ]
 
-if CONFIG['MOZ_WIDGET_TOOLKIT'] in ('gtk', 'android'):
+if CONFIG['MOZ_WIDGET_TOOLKIT'] in ('gtk', 'android', 'qt'):
     LOCAL_INCLUDES += [
         "/gfx/cairo/cairo/src",
     ]
@@ -661,6 +661,8 @@ if CONFIG['MOZ_WIDGET_TOOLKIT'] in ('gtk', 'android'):
 
 if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'gtk':
     CXXFLAGS += CONFIG['MOZ_PANGO_CFLAGS']
+elif CONFIG['MOZ_WIDGET_TOOLKIT'] == 'qt':
+    CXXFLAGS += CONFIG['MOZ_QT6_CFLAGS']
 
 if CONFIG['TARGET_CPU'] in ('mips32', 'mips64'):
     # The skia code uses `mips` as a variable, but it's a builtin preprocessor

@@ -46,7 +46,7 @@
 #  include "mozilla/layers/D3D11ZeroCopyTextureImage.h"
 #endif
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
 #  include "mozilla/layers/DMABUFSurfaceImage.h"
 #  include "mozilla/widget/DMABufDevice.h"
 #  include "mozilla/widget/DMABufSurface.h"
@@ -206,7 +206,7 @@ const char* const kFragConvert_ColorMatrix = R"(
     return (uColorMatrix * vec4(src, 1)).rgb;
   }
 )";
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
 const char* const kFragConvert_ColorMatrixBGR = R"(
   uniform mediump MAT4X3 uColorMatrix;
 
@@ -1032,7 +1032,7 @@ bool GLBlitHelper::BlitSdToFramebuffer(const layers::SurfaceDescriptor& asd,
                   destRect, destOrigin, fbSize, convertAlpha);
     }
 #endif
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
     case layers::SurfaceDescriptor::TSurfaceDescriptorDMABuf: {
       const auto& sd = asd.get_SurfaceDescriptorDMABuf();
       RefPtr<DMABufSurface> surface = DMABufSurface::CreateDMABufSurface(sd);
@@ -1047,6 +1047,7 @@ bool GLBlitHelper::BlitSdToFramebuffer(const layers::SurfaceDescriptor& asd,
       return false;
   }
 }
+
 
 // -------------------------------------
 
@@ -1684,7 +1685,7 @@ void GLBlitHelper::BlitTextureToTexture(GLuint srcTex, GLuint destTex,
 }
 
 // -------------------------------------
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
 bool GLBlitHelper::Blit(DMABufSurface* surface, const gfx::IntRect& destRect,
                         OriginPos destOrigin, const gfx::IntSize& fbSize,
                         Maybe<gfxAlphaType> convertAlpha,
@@ -1798,7 +1799,9 @@ bool GLBlitHelper::Blit(DMABufSurface* surface, const gfx::IntRect& destRect,
 
   return true;
 }
+#endif
 
+#ifdef MOZ_WIDGET_GTK
 bool GLBlitHelper::BlitYCbCrTexturesToDMABuf(BufferSurface* aSource,
                                              DMABufSurface* aDest) {
   if (aSource->GetTextureCount() != 3) {

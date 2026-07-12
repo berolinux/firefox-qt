@@ -59,6 +59,12 @@ namespace gl {
 #  include "GLContextProviderImpl.h"
 #  undef GL_CONTEXT_PROVIDER_NAME
 #  define GL_CONTEXT_PROVIDER_DEFAULT GLContextProviderLinux
+#elif defined(MOZ_WIDGET_QT)
+// Qt uses the Linux provider with EGL only until GLX/DMABuf helpers are shared.
+#  define GL_CONTEXT_PROVIDER_NAME GLContextProviderLinux
+#  include "GLContextProviderImpl.h"
+#  undef GL_CONTEXT_PROVIDER_NAME
+#  define GL_CONTEXT_PROVIDER_DEFAULT GLContextProviderLinux
 #endif
 
 #if defined(MOZ_WIDGET_UIKIT)

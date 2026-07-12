@@ -288,7 +288,7 @@ void CompositorOGL::CleanupResources() {
   mNativeLayersReferenceRT = nullptr;
   mFullWindowRenderTarget = nullptr;
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   // TextureSources might hold RefPtr<gl::GLContext>.
   // All of them needs to be released to destroy GLContext.
   // GLContextGLX has to be destroyed before related gtk window is destroyed.
@@ -1649,7 +1649,7 @@ void PerUnitTexturePoolOGL::DestroyTextures() {
 }
 
 void CompositorOGL::RegisterTextureSource(TextureSource* aTextureSource) {
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   if (mDestroyed) {
     return;
   }
@@ -1658,7 +1658,7 @@ void CompositorOGL::RegisterTextureSource(TextureSource* aTextureSource) {
 }
 
 void CompositorOGL::UnregisterTextureSource(TextureSource* aTextureSource) {
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   if (mDestroyed) {
     return;
   }

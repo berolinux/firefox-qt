@@ -49,6 +49,11 @@
 #  include "mozilla/WidgetUtilsGtk.h"
 #endif
 
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
+// For mozilla::dom::SystemFontOptions (PContent.ipdl).
+#  include "mozilla/dom/PContent.h"
+#endif
+
 #ifdef MOZ_X11
 #  include "mozilla/X11Util.h"
 #endif
@@ -3292,3 +3297,44 @@ void gfxFcPlatformFontList::SubstituteSystemFontOptions(FcPattern* aPattern) {
 }
 
 #endif  // MOZ_WIDGET_GTK
+
+#ifdef MOZ_WIDGET_QT
+void gfxFcPlatformFontList::ClearSystemFontOptions() {
+  if (mSystemFontOptions) {
+    cairo_font_options_destroy(mSystemFontOptions);
+    mSystemFontOptions = nullptr;
+  }
+}
+
+bool gfxFcPlatformFontList::UpdateSystemFontOptions() {
+  // Qt look-and-feel font options can be wired via QFont later.
+  return false;
+}
+
+void gfxFcPlatformFontList::SystemFontOptionsToIpc(
+    dom::SystemFontOptions& aOptions) {
+  aOptions.antialias() = CAIRO_ANTIALIAS_DEFAULT;
+  aOptions.subpixelOrder() = CAIRO_SUBPIXEL_ORDER_DEFAULT;
+  aOptions.hintStyle() = CAIRO_HINT_STYLE_DEFAULT;
+  aOptions.lcdFilter() = mFreetypeLcdSetting;
+}
+
+void gfxFcPlatformFontList::UpdateSystemFontOptionsFromIpc(
+    const dom::SystemFontOptions& aOptions) {
+  ClearSystemFontOptions();
+  mSystemFontOptions = cairo_font_options_create();
+  cairo_font_options_set_antialias(mSystemFontOptions,
+                                   cairo_antialias_t(aOptions.antialias()));
+  cairo_font_options_set_hint_style(mSystemFontOptions,
+                                    cairo_hint_style_t(aOptions.hintStyle()));
+  cairo_font_options_set_subpixel_order(
+      mSystemFontOptions, cairo_subpixel_order_t(aOptions.subpixelOrder()));
+  mFreetypeLcdSetting = aOptions.lcdFilter();
+}
+
+void gfxFcPlatformFontList::SubstituteSystemFontOptions(FcPattern* aPattern) {
+  if (mSystemFontOptions) {
+    cairo_ft_font_options_substitute(mSystemFontOptions, aPattern);
+  }
+}
+#endif  // MOZ_WIDGET_QT

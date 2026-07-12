@@ -46,6 +46,7 @@ class nsCUPSShim {
   X(Optional::No, cupsEnumDests)            \
   X(Optional::No, cupsFreeDestInfo)         \
   X(Optional::No, cupsFreeDests)            \
+  X(Optional::No, cupsFreeOptions)          \
   X(Optional::No, cupsGetDestMediaByName)   \
   X(Optional::Yes, cupsFindDestDefault)     \
   X(Optional::Yes, cupsGetDestMediaDefault) \
@@ -57,6 +58,7 @@ class nsCUPSShim {
   X(Optional::No, cupsGetDests2)            \
   X(Optional::No, cupsGetNamedDest)         \
   X(Optional::No, cupsGetOption)            \
+  X(Optional::No, cupsPrintFile)            \
   X(Optional::No, cupsServer)               \
   X(Optional::Yes, httpAddrPort)            \
   X(Optional::No, httpClose)                \

@@ -115,12 +115,13 @@ static StaticRefPtr<Theme> gRDMInstance;
 
 }  // namespace
 
-#ifdef ANDROID
+#if defined(ANDROID)
 already_AddRefed<Theme> do_CreateNativeThemeDoNotUseDirectly() {
-  // Android doesn't have a native theme.
+  // Android uses the non-native theme.
   return do_AddRef(new Theme(Theme::ScrollbarStyle()));
 }
 #endif
+// Qt: do_CreateNativeThemeDoNotUseDirectly lives in nsNativeThemeQt.cpp
 
 already_AddRefed<nsITheme> do_GetBasicNativeThemeDoNotUseDirectly() {
   if (MOZ_UNLIKELY(!gNonNativeInstance)) {
@@ -1507,7 +1508,7 @@ UniquePtr<ScrollbarDrawing> Theme::ScrollbarStyle() {
   return std::make_unique<ScrollbarDrawingWin>();
 #elif defined(MOZ_WIDGET_COCOA) || defined(MOZ_WIDGET_UIKIT)
   return std::make_unique<ScrollbarDrawingCocoa>();
-#elif MOZ_WIDGET_GTK
+#elif defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   return std::make_unique<ScrollbarDrawingGTK>();
 #elif ANDROID
   return std::make_unique<ScrollbarDrawingAndroid>();

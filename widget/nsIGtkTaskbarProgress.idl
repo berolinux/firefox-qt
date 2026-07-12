@@ -17,6 +17,11 @@ interface nsIGtkTaskbarProgress : nsITaskbarProgress
    * Sets the window that is considered primary for purposes of
    * setting the XApp progress property.
    */
-
   void setPrimaryWindow(in mozIDOMWindowProxy aWindow);
+
+  /**
+   * Number of active downloads for launcher badge / Plasma JobView.
+   * Optional for backends that ignore it (GTK XApp progress).
+   */
+  void setActiveDownloadCount(in unsigned long count);
 };

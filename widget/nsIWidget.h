@@ -216,7 +216,7 @@ enum TouchPointerState : uint8_t {
 #ifdef XP_WIN
 #  define NS_NATIVE_ICOREWINDOW 103  // winrt specific
 #endif
-#if defined(MOZ_WIDGET_GTK)
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
 #  define NS_NATIVE_EGL_WINDOW 106
 #endif
 #ifdef MOZ_WIDGET_ANDROID

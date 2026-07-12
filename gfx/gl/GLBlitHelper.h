@@ -47,6 +47,8 @@ class MacIOSurface;
 
 #ifdef MOZ_WIDGET_GTK
 class BufferSurface;
+#endif
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
 class DMABufSurface;
 #endif
 
@@ -77,7 +79,7 @@ class SurfaceTextureDescriptor;
 class MacIOSurfaceImage;
 #endif
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
 class DMABUFSurfaceImage;
 #endif
 }  // namespace layers
@@ -274,11 +276,13 @@ class GLBlitHelper final {
             const gfx::IntSize& fbSize = gfx::IntSize(),
             Maybe<gfxAlphaType> convertAlpha = {}) const;
 #endif
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   bool Blit(DMABufSurface* surface, const gfx::IntRect& destRect,
             OriginPos destOrigin, const gfx::IntSize& fbSize = gfx::IntSize(),
             Maybe<gfxAlphaType> convertAlpha = {},
             gfx::SurfaceFormat aDestFormat = gfx::SurfaceFormat::UNKNOWN) const;
+#endif
+#ifdef MOZ_WIDGET_GTK
   bool BlitYCbCrTexturesToDMABuf(BufferSurface* aSource, DMABufSurface* aDest);
 #endif
 
@@ -358,7 +362,7 @@ extern const char* const kFragSample_ThreePlane;
 extern const char* const kFragConvert_None;
 extern const char* const kFragConvert_BGR;
 extern const char* const kFragConvert_ColorMatrix;
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
 extern const char* const kFragConvert_ColorMatrixBGR;
 #endif
 extern const char* const kFragConvert_ColorLut3d;

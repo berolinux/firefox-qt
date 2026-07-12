@@ -13,6 +13,9 @@
 
 #  include "X11UndefineNone.h"
 #  include "mozilla/WidgetUtilsGtk.h"
+#elif defined(MOZ_WIDGET_QT)
+#  include <X11/Xlib.h>
+#  include "X11UndefineNone.h"
 #else
 #  error Unknown toolkit
 #endif
@@ -30,6 +33,11 @@ inline Display* DefaultXDisplay() {
   if (mozilla::widget::GdkIsX11Display(gdkDisplay)) {
     return GDK_DISPLAY_XDISPLAY(gdkDisplay);
   }
+#elif defined(MOZ_WIDGET_QT)
+  // Qt owns the X display connection via the xcb QPA plugin; callers that need
+  // a Display* should obtain it through Qt native interfaces. Returning null
+  // here keeps X11-optional code paths safe.
+  return nullptr;
 #endif
   return nullptr;
 }

@@ -20,6 +20,10 @@
 #  include "mozilla/widget/GtkCompositorWidget.h"
 #endif
 
+#ifdef MOZ_WIDGET_QT
+#  include "mozilla/widget/QtCompositorWidget.h"
+#endif
+
 #ifdef MOZ_WIDGET_ANDROID
 #  include <android/native_window.h>
 #  include <android/native_window_jni.h>
@@ -50,6 +54,10 @@ UniquePtr<RenderCompositor> RenderCompositorEGL::Create(
     }
     return nullptr;
   }
+  // Qt: allow deferred EGL surface creation (Wayland surface may appear only
+  // after map). BeginFrame retries CreateEGLSurface. Returning nullptr here
+  // would fall through to SWGL+QBackingStore, which is wrong for exclusive
+  // OpenGLSurface top-levels.
   return std::make_unique<RenderCompositorEGL>(aWidget, std::move(gl));
 }
 
@@ -64,6 +72,13 @@ EGLSurface RenderCompositorEGL::CreateEGLSurface() {
                     << renderThread->ActiveRendererCount() << " active.";
   }
   return surface;
+}
+
+static void ConfigureEGLSurfaceInterval(gl::GLContext* aGL) {
+  const auto& gle = gl::GLContextEGL::Cast(aGL);
+  const auto& egl = gle->mEgl;
+  const int interval = gfx::gfxVars::SwapIntervalEGL() ? 1 : 0;
+  egl->fSwapInterval(interval);
 }
 
 RenderCompositorEGL::RenderCompositorEGL(
@@ -83,12 +98,19 @@ RenderCompositorEGL::RenderCompositorEGL(
     // non-blocking buffer swaps. We need MakeCurrent() to set our current EGL
     // context before we call eglSwapInterval, which is why we do it here
     // rather than where the surface was created.
-    const auto& gle = gl::GLContextEGL::Cast(gl());
-    const auto& egl = gle->mEgl;
     MakeCurrent();
-
-    const int interval = gfx::gfxVars::SwapIntervalEGL() ? 1 : 0;
-    egl->fSwapInterval(interval);
+    ConfigureEGLSurfaceInterval(gl());
+  }
+#endif
+#ifdef MOZ_WIDGET_QT
+  // Qt builds do not define MOZ_X11/MOZ_WAYLAND (GTK-tied); create the window
+  // EGL surface up front for both xcb and wayland QPA backends.
+  if (!mEGLSurface) {
+    mEGLSurface = CreateEGLSurface();
+    if (mEGLSurface) {
+      MakeCurrent();
+      ConfigureEGLSurfaceInterval(gl());
+    }
   }
 #endif
 }
@@ -103,6 +125,19 @@ RenderCompositorEGL::~RenderCompositorEGL() {
 
 bool RenderCompositorEGL::BeginFrame() {
   LOG("RenderCompositorEGL::BeginFrame()");
+#ifdef MOZ_WIDGET_QT
+  // Deferred surface: native window may only exist after the first show/map.
+  if (mEGLSurface == EGL_NO_SURFACE) {
+    if (auto* qtWidget = mWidget->AsQt()) {
+      qtWidget->SetEGLNativeWindowSize(GetBufferSize());
+    }
+    mEGLSurface = CreateEGLSurface();
+    if (mEGLSurface != EGL_NO_SURFACE) {
+      MakeCurrent();
+      ConfigureEGLSurfaceInterval(gl());
+    }
+  }
+#endif
   if (kIsLinux && mEGLSurface == EGL_NO_SURFACE) {
     gfxCriticalNote
         << "We don't have EGLSurface to draw into. Called too early?";
@@ -111,6 +146,11 @@ bool RenderCompositorEGL::BeginFrame() {
 #ifdef MOZ_WAYLAND
   if (auto* gtkWidget = mWidget->AsGTK()) {
     gtkWidget->SetEGLNativeWindowSize(GetBufferSize());
+  }
+#endif
+#ifdef MOZ_WIDGET_QT
+  if (auto* qtWidget = mWidget->AsQt()) {
+    qtWidget->SetEGLNativeWindowSize(GetBufferSize());
   }
 #endif
   if (!MakeCurrent()) {
@@ -151,7 +191,7 @@ RenderedFrameId RenderCompositorEGL::EndFrame(
 #endif
 
   RenderedFrameId frameId = GetNextRenderFrameId();
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   if (mWidget->IsHidden()) {
     return frameId;
   }
@@ -232,27 +272,28 @@ bool RenderCompositorEGL::Resume() {
 
     gl::GLContextEGL::Cast(gl())->SetEGLSurfaceOverride(mEGLSurface);
   } else if (kIsLinux) {
+    bool createWindowSurface = false;
 #ifdef MOZ_X11
     if (widget::GdkIsX11Display()) {
+      createWindowSurface = true;
+    }
+#endif
+#ifdef MOZ_WIDGET_QT
+    // Qt: always (re)create the window surface on resume for any QPA backend.
+    createWindowSurface = true;
+#endif
+    if (createWindowSurface) {
       DestroyEGLSurface();
       mEGLSurface = CreateEGLSurface();
       if (mEGLSurface != EGL_NO_SURFACE) {
-        // We have a new EGL surface, which on wayland needs to be configured
-        // for non-blocking buffer swaps. We need MakeCurrent() to set our
-        // current EGL context before we call eglSwapInterval, which is why we
-        // do it here rather than where the surface was created.
-        const auto& gle = gl::GLContextEGL::Cast(gl());
-        const auto& egl = gle->mEgl;
+        // Need MakeCurrent() before eglSwapInterval.
         MakeCurrent();
-
-        const int interval = gfx::gfxVars::SwapIntervalEGL() ? 1 : 0;
-        egl->fSwapInterval(interval);
+        ConfigureEGLSurfaceInterval(gl());
       } else {
         RenderThread::Get()->HandleWebRenderError(WebRenderError::NEW_SURFACE);
         return false;
       }
     }
-#endif
   }
   return true;
 }

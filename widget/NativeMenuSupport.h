@@ -9,7 +9,7 @@
 
 class nsIWidget;
 
-#if defined(XP_MACOSX) || defined(MOZ_WIDGET_GTK)
+#if defined(XP_MACOSX) || defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
 #  define HAS_NATIVE_MENU_SUPPORT 1
 #endif
 

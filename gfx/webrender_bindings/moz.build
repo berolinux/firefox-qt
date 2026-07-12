@@ -91,7 +91,7 @@ if CONFIG["MOZ_WIDGET_TOOLKIT"] == "windows":
         "RenderDcompSurfaceTextureHost.cpp",
     ]
 
-if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
+if CONFIG["MOZ_WIDGET_TOOLKIT"] in ("gtk", "qt"):
     EXPORTS.mozilla.webrender += [
         "RenderLinuxTextureHost.h",
     ]
@@ -99,7 +99,8 @@ if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
         "RenderLinuxTextureHost.cpp",
     ]
 
-if CONFIG["MOZ_WAYLAND"]:
+# RenderCompositorNative currently depends on widget/gtk Wayland surfaces.
+if CONFIG["MOZ_WAYLAND"] and CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
     EXPORTS.mozilla.webrender += [
         "RenderCompositorNative.h",
     ]
@@ -107,7 +108,7 @@ if CONFIG["MOZ_WAYLAND"]:
         "RenderCompositorNative.cpp",
     ]
 
-if CONFIG["MOZ_WIDGET_TOOLKIT"] in ("android", "gtk"):
+if CONFIG["MOZ_WIDGET_TOOLKIT"] in ("android", "gtk", "qt"):
     CXXFLAGS += CONFIG["CAIRO_FT_CFLAGS"]
 
 if CONFIG["COMPILE_ENVIRONMENT"]:
@@ -134,6 +135,8 @@ LOCAL_INCLUDES += [
 ]
 if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
     CXXFLAGS += CONFIG["MOZ_GTK3_CFLAGS"]
+# Note: do not add MOZ_QT6_CFLAGS here. Qt headers can pull in X11 XI.h which
+# defines COUNT and corrupts cbindgen output for webrender_ffi_generated.h.
 
 COMPILE_FLAGS["WARNINGS_CXXFLAGS"] += ["-Werror=switch"]
 

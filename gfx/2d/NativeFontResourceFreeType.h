@@ -39,7 +39,7 @@ class NativeFontResourceFreeType : public NativeFontResource {
   RefPtr<FontData> mFontData;
 };
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
 class NativeFontResourceFontconfig final : public NativeFontResourceFreeType {
  public:
   MOZ_DECLARE_REFCOUNTED_VIRTUAL_TYPENAME(NativeFontResourceFontconfig,

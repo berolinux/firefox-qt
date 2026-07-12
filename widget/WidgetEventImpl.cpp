@@ -42,9 +42,9 @@
 #  include "winnetwk.h"
 #endif  // #if defined (XP_WIN)
 
-#if defined(MOZ_WIDGET_GTK) || defined(XP_MACOSX)
+#if defined(MOZ_WIDGET_GTK) || defined(XP_MACOSX) || defined(MOZ_WIDGET_QT)
 #  include "NativeKeyBindings.h"
-#endif  // #if defined(MOZ_WIDGET_GTK) || defined(XP_MACOSX)
+#endif
 
 namespace mozilla {
 
@@ -1329,7 +1329,7 @@ bool WidgetKeyboardEvent::InitEditCommandsFor(
   // always trusted.
   if (mFlags.mIsSynthesizedForTests) {
     MOZ_DIAGNOSTIC_ASSERT(IsTrusted());
-#if defined(MOZ_WIDGET_GTK) || defined(XP_MACOSX)
+#if defined(MOZ_WIDGET_GTK) || defined(XP_MACOSX) || defined(MOZ_WIDGET_QT)
     // TODO: We should implement `NativeKeyBindings` for Windows and Android
     //       too in bug 1301497 for getting rid of the #if.
     widget::NativeKeyBindings::GetEditCommandsForTests(aType, *this,

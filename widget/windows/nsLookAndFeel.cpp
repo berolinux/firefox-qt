@@ -716,6 +716,10 @@ nsresult nsLookAndFeel::NativeGetInt(IntID aID, int32_t& aResult) {
       aResult = static_cast<int32_t>(result);
       break;
     }
+    case IntID::DialogPrimaryButtonOnLeft:
+      // Windows HIG: primary/accept to the left of cancel.
+      aResult = 1;
+      break;
     default:
       aResult = 0;
       res = NS_ERROR_FAILURE;

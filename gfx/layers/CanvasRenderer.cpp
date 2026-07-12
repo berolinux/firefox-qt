@@ -12,7 +12,7 @@
 #include "mozilla/gfx/gfxVars.h"
 #include "nsICanvasRenderingContextInternal.h"
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
 #  include "mozilla/widget/DMABufDevice.h"
 #  include "mozilla/widget/DMABufSurface.h"
 #endif
@@ -110,7 +110,7 @@ TextureType TexTypeForWebgl(KnowsCompositor* const knowsCompositor,
     return TextureType::MacIOSurface;
   }
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   if (kIsLinux) {
     if (!knowsCompositor->UsingSoftwareWebRender() &&
         widget::DMABufDevice::IsDMABufWebGLEnabled()) {

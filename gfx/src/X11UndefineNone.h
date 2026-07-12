@@ -55,3 +55,9 @@
 #  undef Success
 #  define X11Success 0
 #endif
+
+// X11/extensions/XI.h defines COUNT as 0, which breaks enum variants named
+// COUNT (e.g. in WebRender FFI headers). Qt's XCB platform can pull XI.h in.
+#ifdef COUNT
+#  undef COUNT
+#endif

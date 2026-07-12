@@ -40,9 +40,17 @@
 #  include "mozilla/widget/DMABufDevice.h"
 #  ifdef MOZ_WAYLAND
 #    include "mozilla/widget/nsWaylandDisplay.h"
-#  endif  // MOZ_WIDGET_GTK
+#  endif
 #  include <gdk/gdk.h>
-#endif  // MOZ_WAYLAND
+#endif
+
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
+#  include "mozilla/widget/DMABufDevice.h"
+#endif
+
+#ifdef MOZ_WIDGET_QT
+#  include "mozilla/widget/QtEglUtils.h"
+#endif
 
 #include <mutex>  // for call_once
 
@@ -177,7 +185,7 @@ static std::shared_ptr<EglDisplay> GetAndInitDisplay(
   return EglDisplay::Create(egl, display, false, aProofOfLock);
 }
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
 static std::shared_ptr<EglDisplay> GetAndInitDeviceDisplay(
     GLLibraryEGL& egl, const StaticMutexAutoLock& aProofOfLock) {
   nsAutoCString drmRenderDevice(gfx::gfxVars::DrmRenderDevice());
@@ -1145,11 +1153,13 @@ std::shared_ptr<EglDisplay> GLLibraryEGL::CreateDisplayLocked(
     }
   } else {
     void* nativeDisplay = EGL_DEFAULT_DISPLAY;
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
     if (!ret && (!gfx::gfxVars::WebglUseHardware() || aFlags.mForceSoftware)) {
       // Initialize a swrast egl device such as llvmpipe
       ret = GetAndInitSoftwareDisplay(*this, aProofOfLock);
     }
+#endif
+#ifdef MOZ_WIDGET_GTK
     // Initialize the display the normal way
     if (!ret && !gdk_display_get_default() && !aFlags.mForceSoftware) {
       ret = GetAndInitDeviceDisplay(*this, aProofOfLock);
@@ -1171,7 +1181,6 @@ std::shared_ptr<EglDisplay> GLLibraryEGL::CreateDisplayLocked(
     MOZ_ASSERT(!aFlags.mForceSoftware,
                "Software rendering not supported by EGL on macOS");
 #endif
-
     // Initialize a display selecting a power preference, if supported.
     if (!ret && !aFlags.mForceSoftware &&
         IsExtensionSupported(EGLLibExtension::ANGLE_display_power_preference)) {
@@ -1192,6 +1201,25 @@ std::shared_ptr<EglDisplay> GLLibraryEGL::CreateDisplayLocked(
       }
     }
 
+#ifdef MOZ_WIDGET_QT
+    if (!ret && !aFlags.mForceSoftware) {
+      // Bind EGL to the same native display QPA is using. Using
+      // EGL_DEFAULT_DISPLAY can pick the wrong platform (e.g. Wayland when
+      // Firefox is on xcb) and then crash in eglCreateWindowSurface.
+      if (widget::QtIsWaylandDisplay()) {
+        nativeDisplay = widget::QtGetWaylandDisplay();
+        if (!nativeDisplay) {
+          NS_WARNING("Failed to get Qt wl_display for EGL.");
+          return nullptr;
+        }
+      } else if (widget::QtIsX11Display()) {
+        void* xDisplay = widget::QtGetX11Display();
+        if (xDisplay) {
+          nativeDisplay = xDisplay;
+        }
+      }
+    }
+#endif
     if (!ret && !aFlags.mForceSoftware) {
       ret = GetAndInitDisplay(*this, nativeDisplay, aProofOfLock);
     }

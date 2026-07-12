@@ -411,7 +411,7 @@ class CompositorOGL final : public Compositor {
   // with a non-null aNativeLayer.
   RefPtr<NativeLayer> mCurrentNativeLayer;
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   // Hold TextureSources which own device data that have to be deleted before
   // destroying this CompositorOGL.
   std::unordered_set<TextureSource*> mRegisteredTextureSources;
