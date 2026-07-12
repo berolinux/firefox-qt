@@ -36,11 +36,17 @@
     }
 
     attributeChangedCallback(name, oldValue, newValue) {
-      // Only move the button on UNIX, since it's already in the correct spot on Windows
-      if (name === "extra1-is-secondary" && AppConstants.XP_UNIX) {
+      // Secondary sits after cancel when primary is on the right; left-primary
+      // markup already places extra1 between accept and cancel.
+      if (name === "extra1-is-secondary" && this.#primaryOnRight) {
         this.getButton("cancel").after(this.getButton("extra1"));
       }
       super.attributeChangedCallback(name, oldValue, newValue);
+    }
+
+    // Driven by LookAndFeel (on Qt: QStyle::SH_DialogButtonLayout).
+    get #primaryOnRight() {
+      return !Services.appinfo.dialogPrimaryButtonOnLeft;
     }
 
     static get inheritedAttributes() {
@@ -58,7 +64,7 @@
     }
 
     get _markup() {
-      let buttons = AppConstants.XP_UNIX
+      let buttons = this.#primaryOnRight
         ? `
       <hbox class="dialog-button-box">
         <button part="dialog-button" dlgtype="disclosure" hidden="true"/>

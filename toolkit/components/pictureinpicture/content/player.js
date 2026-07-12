@@ -1726,9 +1726,8 @@ let Player = {
    * Given a width and height for a video, computes the minimum dimensions for
    * the player window, and then sets them on the root element.
    *
-   * This is currently only used on Linux GTK, where the OS doesn't already
-   * impose a minimum window size. For other platforms, this function is a
-   * no-op.
+   * Used on Linux GTK and Qt, where the OS doesn't already impose a useful
+   * minimum window size. For other platforms, this function is a no-op.
    *
    * @param {number} width
    *   The width of the video being played.
@@ -1736,7 +1735,7 @@ let Player = {
    *   The height of the video being played.
    */
   computeAndSetMinimumSize(width, height) {
-    if (!AppConstants.MOZ_WIDGET_GTK) {
+    if (!AppConstants.MOZ_WIDGET_GTK && !AppConstants.MOZ_WIDGET_QT) {
       return;
     }
 

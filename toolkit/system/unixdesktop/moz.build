@@ -1,0 +1,45 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+with Files("**"):
+    BUG_COMPONENT = ("Firefox", "Shell Integration")
+
+SOURCES += [
+    "FdoNotificationBridge.cpp",
+    "nsSystemAlertsServiceQt.cpp",
+    "nsUnixDesktopService.cpp",
+]
+
+# moc for QDBus signal bridge (Q_OBJECT). Reuse the Qt widget moc helper.
+GeneratedFile(
+    "moc_FdoNotificationBridge.cpp",
+    script="../../../widget/qt/moc_generate.py",
+    inputs=["FdoNotificationBridge.h"],
+    flags=["%s" % CONFIG["MOZ_QT_MOC"]],
+)
+SOURCES += ["!moc_FdoNotificationBridge.cpp"]
+
+XPCOM_MANIFESTS += [
+    "components.conf",
+]
+
+FINAL_LIBRARY = "xul"
+
+LOCAL_INCLUDES += [
+    "/image/",
+    "/toolkit/components/alerts/",
+    "/toolkit/components/build/",
+    "/widget/qt",
+]
+
+CXXFLAGS += CONFIG["MOZ_QT6_CFLAGS"]
+OS_LIBS += CONFIG["MOZ_QT6_LIBS"]
+
+if CONFIG["MOZ_ENABLE_KF6_SERVICE"]:
+    DEFINES["MOZ_ENABLE_KF6_SERVICE"] = True
+    CXXFLAGS += CONFIG["MOZ_KF6_SERVICE_CFLAGS"]
+    OS_LIBS += CONFIG["MOZ_KF6_SERVICE_LIBS"]
+
+# Qt headers conflict with -fvisibility=hidden wrappers.
+NoVisibilityFlags()

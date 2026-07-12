@@ -35,6 +35,20 @@ export class MozButtonGroup extends MozLitElement {
   }
 
   #detectPlatform() {
+    // Prefer the toolkit LookAndFeel hint (Qt: QStyle::SH_DialogButtonLayout).
+    // Primary-on-left uses the same ordering path as Windows.
+    if (typeof Services !== "undefined" && Services.appinfo) {
+      try {
+        this.platform = Services.appinfo.dialogPrimaryButtonOnLeft
+          ? PLATFORM_WINDOWS
+          : typeof AppConstants !== "undefined"
+            ? AppConstants.platform
+            : PLATFORM_LINUX;
+        return;
+      } catch (e) {
+        // Fall through to static platform detection.
+      }
+    }
     if (typeof AppConstants !== "undefined") {
       this.platform = AppConstants.platform;
     } else if (navigator.platform.includes("Linux")) {
