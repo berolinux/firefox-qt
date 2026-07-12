@@ -5,7 +5,9 @@
 #ifndef BASE_MESSAGE_PUMP_QT_H_
 #define BASE_MESSAGE_PUMP_QT_H_
 
+#pragma GCC visibility push(default)
 #include <qobject.h>
+#pragma GCC visibility pop
 
 #include "base/message_pump.h"
 #include "base/time.h"
