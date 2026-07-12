@@ -2361,6 +2361,10 @@ class UtilitySandboxPolicy : public SandboxPolicyCommon {
       case __NR_getrusage:
         return Allow();
 
+      // fontconfig / GIO / media stacks probe FS type (same as content/RDD).
+      CASES_FOR_fstatfs:
+        return Allow();
+
       // Required by FFmpeg
       case __NR_get_mempolicy:
         return Allow();
