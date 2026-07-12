@@ -118,6 +118,12 @@ let ShellServiceInternal = {
 
     if (AppConstants.platform == "linux") {
       if (this.shellService) {
+        if (AppConstants.MOZ_WIDGET_QT) {
+          let unixShellService = this.shellService.QueryInterface(
+            Ci.nsIUnixShellService
+          );
+          return unixShellService.canSetDesktopBackground;
+        }
         let linuxShellService = this.shellService.QueryInterface(
           Ci.nsIGNOMEShellService
         );
@@ -1455,7 +1461,11 @@ switch (AppConstants.platform) {
     shellInterface = Ci.nsIMacShellService;
     break;
   case "linux":
-    shellInterface = Ci.nsIGNOMEShellService;
+    // GTK: nsIGNOMEShellService. Qt/Plasma: nsIUnixShellService
+    // (xdg-settings / KDE BrowserApplication, plasma wallpaper — no GIO).
+    shellInterface = AppConstants.MOZ_WIDGET_QT
+      ? Ci.nsIUnixShellService
+      : Ci.nsIGNOMEShellService;
     break;
   default:
     lazy.log.warn(

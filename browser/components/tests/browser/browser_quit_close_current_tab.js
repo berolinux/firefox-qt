@@ -16,8 +16,8 @@ add_task(async function test_close_current_tab() {
       dialogElement.buttonBox.getElementsByTagName("button")
     );
 
-    // button reordering only happens on Unix
-    if (AppConstants.XP_UNIX) {
+    // Primary-on-right layouts put Cancel before Accept.
+    if (!Services.appinfo.dialogPrimaryButtonOnLeft) {
       is(
         buttons[2].label,
         dialogElement.getButton("cancel").label,

@@ -1,0 +1,24 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+#include "nsIShellService.idl"
+
+/**
+ * FreeDesktop / Plasma extensions to nsIShellService for the Qt toolkit.
+ */
+[scriptable, uuid(7c8e2a11-4f3d-4b6a-9e2c-1d0b8f4a9c01)]
+interface nsIUnixShellService : nsIShellService
+{
+  /**
+   * Whether "Set as desktop background" is available on this session
+   * (true on Plasma when plasma-apply-wallpaperimage is present).
+   */
+  readonly attribute boolean canSetDesktopBackground;
+
+  /**
+   * True if this browser is the FreeDesktop default handler for aScheme
+   * (e.g. "http", "https", "mailto").
+   */
+  boolean isDefaultForScheme(in AUTF8String aScheme);
+};
