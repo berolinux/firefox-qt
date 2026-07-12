@@ -1,0 +1,222 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+with Files("**"):
+    BUG_COMPONENT = ("Core", "Widget")
+
+# WebRTC desktop capture / pipewire needs GBM symbols on Linux.
+DIRS += [
+    "/third_party/gbm/libgbm",
+]
+
+EXPORTS += [
+    "nsAppShell.h",
+]
+
+# Linux probe utils (no GIO).
+EXPORTS.mozilla += [
+    "../gtk/GfxInfoUtils.h",
+]
+
+EXPORTS.mozilla.widget += [
+    # Shared Linux DMABuf helpers (sources live under widget/gtk).
+    "../gtk/DMABufDevice.h",
+    "../gtk/DMABufFormats.h",
+    "../gtk/DMABufSurface.h",
+    "../gtk/va_drmcommon.h",
+    "CompositorWidgetChild.h",
+    "CompositorWidgetParent.h",
+    "InProcessQtCompositorWidget.h",
+    "QtCompositorWidget.h",
+    "QtEglUtils.h",
+]
+
+UNIFIED_SOURCES += [
+    # Shared DMABuf (toolkit-neutral core; Wayland extras gated in-source).
+    "../gtk/DMABufDevice.cpp",
+    "../gtk/DMABufFormats.cpp",
+    "../gtk/DMABufSurface.cpp",
+    "CompositorWidgetChild.cpp",
+    "CompositorWidgetParent.cpp",
+    "InProcessQtCompositorWidget.cpp",
+    "MediaKeysEventSourceFactory.cpp",
+    "MenuUtilsQt.cpp",
+    "MPRISDBusAdaptors.cpp",
+    "MPRISServiceHandler.cpp",
+    "NativeKeyBindings.cpp",
+    "NativeMenuSupport.cpp",
+    "nsAppShell.cpp",
+    "nsBidiKeyboard.cpp",
+    "nsClipboard.cpp",
+    "nsColorPicker.cpp",
+    "nsDragService.cpp",
+    "nsFilePicker.cpp",
+    "nsLookAndFeel.cpp",
+    "nsNativeThemeQt.cpp",
+    "nsSound.cpp",
+    "nsUserIdleServiceQt.cpp",
+    "nsWidgetFactory.cpp",
+    "nsWindow.cpp",
+    "QtAppShellBridge.cpp",
+    "QtCompositorWidget.cpp",
+    "QtEglUtils.cpp",
+    "QtTextEventDispatcherListener.cpp",
+    "QtWaylandVsyncSource.cpp",
+    "QtWindowBridge.cpp",
+    "ScreenHelperQt.cpp",
+    "TaskbarProgress.cpp",
+    "WakeLockListener.cpp",
+]
+
+if CONFIG["MOZ_ENABLE_DBUS"]:
+    # Portal FileChooser / Location / prefs helpers over QtDBus (no GIO).
+    # GeoClue2 provider also uses QtDBus (system bus).
+    SOURCES += [
+        "GeoclueLocationProviderQt.cpp",
+        "PortalFileChooser.cpp",
+        "PortalLocationProviderQt.cpp",
+        "PortalUtils.cpp",
+    ]
+    GeneratedFile(
+        "moc_PortalFileChooser.cpp",
+        script="moc_generate.py",
+        inputs=["PortalFileChooser.h"],
+        flags=["%s" % CONFIG["MOZ_QT_MOC"]],
+    )
+    GeneratedFile(
+        "moc_PortalLocationBridge.cpp",
+        script="moc_generate.py",
+        inputs=["PortalLocationBridge.h"],
+        flags=["%s" % CONFIG["MOZ_QT_MOC"]],
+    )
+    GeneratedFile(
+        "moc_GeoclueLocationBridge.cpp",
+        script="moc_generate.py",
+        inputs=["GeoclueLocationBridge.h"],
+        flags=["%s" % CONFIG["MOZ_QT_MOC"]],
+    )
+    SOURCES += [
+        "!moc_GeoclueLocationBridge.cpp",
+        "!moc_PortalFileChooser.cpp",
+        "!moc_PortalLocationBridge.cpp",
+    ]
+    EXPORTS.mozilla.widget += [
+        "PortalUtils.h",
+    ]
+    LOCAL_INCLUDES += [
+        "/dom/geolocation",
+    ]
+    UNIFIED_SOURCES += [
+        # Optional libdbusmenu-glib fallback (GLib/GObject only — no GIO).
+        "DBusMenu.cpp",
+        "DBusMenuBar.cpp",
+    ]
+    # KWin appmenu protocol (Plasma global menu on Wayland). Always built so
+    # DBusMenuBar can bind the global when running under Wayland/Plasma.
+    SOURCES += [
+        "../gtk/wayland/kde-appmenu-protocol.c",
+    ]
+    EXPORTS.mozilla.widget += [
+        "../gtk/wayland/kde-appmenu-client-protocol.h",
+    ]
+    # Protocol headers need wayland-client.h
+    if CONFIG["MOZ_WAYLAND_CFLAGS"]:
+        CFLAGS += CONFIG["MOZ_WAYLAND_CFLAGS"]
+        CXXFLAGS += CONFIG["MOZ_WAYLAND_CFLAGS"]
+
+if CONFIG["MOZ_ENABLE_VAAPI"]:
+    DIRS += ["../gtk/vaapitest"]
+
+# Qt moc-generated sources for Q_OBJECT types.
+moc_headers = [
+    "MPRISDBusAdaptors.h",
+    "QtAppShellBridge.h",
+    "QtWindowBridge.h",
+    "ScreenHelperQt.h",
+]
+
+for hdr in moc_headers:
+    gen = "moc_%s.cpp" % hdr[:-2]
+    GeneratedFile(
+        gen,
+        script="moc_generate.py",
+        inputs=[hdr],
+        flags=["%s" % CONFIG["MOZ_QT_MOC"]],
+    )
+    SOURCES += ["!%s" % gen]
+
+# Not unified: includes nsMenuPopupFrame.h which conflicts with
+# widget/gtk/GfxInfo.h via LOCAL_INCLUDES when paired with GfxInfo.cpp.
+SOURCES += [
+    "GfxInfo.cpp",
+    "NativeMenuQt.cpp",
+]
+
+XPCOM_MANIFESTS += [
+    "components.conf",
+]
+
+include("/ipc/chromium/chromium-config.mozbuild")
+
+FINAL_LIBRARY = "xul"
+
+DEFINES["MOZ_APP_NAME"] = '"%s"' % CONFIG["MOZ_APP_NAME"]
+
+LOCAL_INCLUDES += [
+    "/layout/base",
+    "/layout/forms",
+    "/layout/generic",
+    "/layout/xul",
+    "/third_party/drm/drm/",
+    "/third_party/drm/drm/include",
+    "/third_party/drm/drm/include/libdrm",
+    "/third_party/gbm/gbm/",
+    "/widget",
+    "/widget/gtk",
+    "/widget/headless",
+]
+
+if CONFIG["NS_PRINTING"]:
+    LOCAL_INCLUDES += ["/third_party/cups/include"]
+    UNIFIED_SOURCES += [
+        "nsDeviceContextSpecQt.cpp",
+        "nsPrintDialogServiceQt.cpp",
+        "nsPrintSettingsServiceQt.cpp",
+    ]
+
+CXXFLAGS += CONFIG["MOZ_QT6_CFLAGS"]
+OS_LIBS += CONFIG["MOZ_QT6_LIBS"]
+
+# GLib/GObject for optional dbusmenu-glib fallback and GMainContext pump
+# (libwebrtc PipeWire portal still uses GIO internally; first-party Qt code
+# uses QtDBus only).
+if CONFIG["GLIB_CFLAGS"]:
+    CXXFLAGS += CONFIG["GLIB_CFLAGS"]
+if CONFIG["GLIB_LIBS"]:
+    OS_LIBS += CONFIG["GLIB_LIBS"]
+
+# Preferred Plasma global-menu backend (libdbusmenu-qt6).
+if CONFIG["MOZ_ENABLE_DBUSMENU_QT"]:
+    CXXFLAGS += CONFIG["MOZ_DBUSMENU_QT_CFLAGS"]
+    OS_LIBS += CONFIG["MOZ_DBUSMENU_QT_LIBS"]
+
+# Private QPA headers (QPlatformNativeInterface). Detected via pkg-config
+# Qt6Gui includedir + modversion (see toolkit/moz.configure).
+# Resolves #include <qpa/qplatformnativeinterface.h>
+if CONFIG["MOZ_QT_PRIVATE_GUI_CFLAGS"]:
+    CXXFLAGS += CONFIG["MOZ_QT_PRIVATE_GUI_CFLAGS"]
+
+# Wayland-EGL for wl_egl_window used as EGLNativeWindowType on Wayland QPA.
+if CONFIG["MOZ_WAYLAND_LIBS"]:
+    CXXFLAGS += CONFIG["MOZ_WAYLAND_CFLAGS"]
+    OS_LIBS += CONFIG["MOZ_WAYLAND_LIBS"]
+    OS_LIBS += ["wayland-egl"]
+
+# Qt headers use Q_DECL_EXPORT/IMPORT with default visibility; they conflict
+# with Firefox's forced -fvisibility=hidden include.
+NoVisibilityFlags()
+
+# Qt headers require exceptions and RTTI in some builds; keep aligned with Qt.
+if CONFIG["MOZ_X11"]:
+    CXXFLAGS += CONFIG["MOZ_X11_CFLAGS"]
