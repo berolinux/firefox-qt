@@ -452,7 +452,7 @@ bool GlobalDMABufFormats::ConfigureFormat(RefPtr<DMABufFormats> aFormats,
 
 void GlobalDMABufFormats::SetModifiersToGfxVars() {
   RefPtr<DMABufFormats> formats;
-#ifdef MOZ_WAYLAND
+#if defined(MOZ_WAYLAND) && defined(MOZ_WIDGET_GTK)
   if (GdkIsWaylandDisplay()) {
     formats = WaylandDisplayGet()->GetDMABufFormats();
   }

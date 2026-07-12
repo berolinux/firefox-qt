@@ -8,22 +8,25 @@
 // Provides GUniquePtr to g_free a given pointer.
 
 #include <glib.h>
-#include <gtk/gtk.h>
-
+#ifdef MOZ_WIDGET_GTK
+#  include <gtk/gtk.h>
+#endif
 #include "mozilla/UniquePtr.h"
 
 namespace mozilla {
 
 struct GFreeDeleter {
   constexpr GFreeDeleter() = default;
+#ifdef MOZ_WIDGET_GTK
   void operator()(GdkEventCrossing* aPtr) const {
     gdk_event_free((GdkEvent*)aPtr);
   }
   void operator()(GdkEventKey* aPtr) const { gdk_event_free((GdkEvent*)aPtr); }
   void operator()(GdkEvent* aPtr) const { gdk_event_free(aPtr); }
+  void operator()(GtkPaperSize* aPtr) const { gtk_paper_size_free(aPtr); }
+#endif
   void operator()(GError* aPtr) const { g_error_free(aPtr); }
   void operator()(void* aPtr) const { g_free(aPtr); }
-  void operator()(GtkPaperSize* aPtr) const { gtk_paper_size_free(aPtr); }
   void operator()(gchar** aPtr) const { g_strfreev(aPtr); }
   void operator()(GInputStream* aPtr) const {
     g_input_stream_close(aPtr, nullptr, nullptr);

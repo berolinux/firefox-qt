@@ -7,11 +7,12 @@
 
 // Allows to use RefPtr<T> with various kinds of GObjects
 
-#include <gdk/gdk.h>
-#include <gio/gdesktopappinfo.h>
 #include <gio/gio.h>
-#include <gtk/gtk.h>
-
+#include <gio/gdesktopappinfo.h>
+#ifdef MOZ_WIDGET_GTK
+#  include <gdk/gdk.h>
+#  include <gtk/gtk.h>
+#endif
 #include "mozilla/RefPtr.h"
 
 typedef struct _DbusmenuMenuitem DbusmenuMenuitem;
@@ -31,7 +32,9 @@ struct GObjectRefPtrTraits {
 
 GOBJECT_TRAITS(DbusmenuMenuitem)
 GOBJECT_TRAITS(DbusmenuServer)
+#ifdef MOZ_WIDGET_GTK
 GOBJECT_TRAITS(GtkWidget)
+#endif
 GOBJECT_TRAITS(GFile)
 GOBJECT_TRAITS(GFileMonitor)
 GOBJECT_TRAITS(GMenu)
@@ -42,16 +45,26 @@ GOBJECT_TRAITS(GDBusProxy)
 GOBJECT_TRAITS(GAppInfo)
 GOBJECT_TRAITS(GDesktopAppInfo)
 GOBJECT_TRAITS(GAppLaunchContext)
+#ifdef MOZ_WIDGET_GTK
 GOBJECT_TRAITS(GdkDragContext)
+#endif
 GOBJECT_TRAITS(GDBusMessage)
+#ifdef MOZ_WIDGET_GTK
 GOBJECT_TRAITS(GdkPixbuf)
+#endif
 GOBJECT_TRAITS(GCancellable)
+#ifdef MOZ_WIDGET_GTK
 GOBJECT_TRAITS(GtkIMContext)
+#endif
 GOBJECT_TRAITS(GUnixFDList)
+#ifdef MOZ_WIDGET_GTK
 GOBJECT_TRAITS(GtkCssProvider)
+#endif
 GOBJECT_TRAITS(GDBusMethodInvocation)
+#ifdef MOZ_WIDGET_GTK
 GOBJECT_TRAITS(GdkWindow)
 GOBJECT_TRAITS(GtkIconInfo)
+#endif
 GOBJECT_TRAITS(GIcon)
 GOBJECT_TRAITS(::GSettings)
 GOBJECT_TRAITS(GDBusConnection)

@@ -17,8 +17,10 @@
 
 #include <mutex>
 
-#include "GfxInfo.h"
-#include "WidgetUtilsGtk.h"
+#include "GfxDriverInfo.h"
+#ifdef MOZ_WIDGET_GTK
+#  include "WidgetUtilsGtk.h"
+#endif
 #include "base/message_loop.h"  // for MessageLoop
 #include "gfxConfig.h"
 #include "mozilla/ClearOnShutdown.h"
@@ -30,6 +32,10 @@
 #include "nsIGfxInfo.h"
 
 using namespace mozilla::gfx;
+
+// Defined here so both GTK and Qt toolkits share the same log module when
+// compiling the DMABuf sources. nsAppShell.cpp no longer owns it.
+mozilla::LazyLogModule gDmabufLog("Dmabuf");
 
 // DMABufDevice.h is included only once by the unified build so redefine
 // the logging macros here, other files in the same unit use their own ones.

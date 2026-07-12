@@ -74,6 +74,12 @@ TaskbarProgress::SetProgressState(nsTaskbarProgressState aState,
 }
 
 NS_IMETHODIMP
+TaskbarProgress::SetActiveDownloadCount(uint32_t) {
+  // GTK XApp progress has no badge count; Qt implements this for Plasma.
+  return NS_OK;
+}
+
+NS_IMETHODIMP
 TaskbarProgress::SetPrimaryWindow(mozIDOMWindowProxy* aWindow) {
   NS_ENSURE_TRUE(aWindow != nullptr, NS_ERROR_ILLEGAL_VALUE);
 

@@ -58,7 +58,7 @@ LazyLogModule gWidgetDragLog("WidgetDrag");
 LazyLogModule gWidgetWaylandLog("WidgetWayland");
 LazyLogModule gWidgetPopupLog("WidgetPopup");
 LazyLogModule gWidgetVsync("WidgetVSync");
-LazyLogModule gDmabufLog("Dmabuf");
+// gDmabufLog is defined in DMABufDevice.cpp (shared with Qt).
 LazyLogModule gWidgetCompositorLog("WidgetCompositor");
 
 #undef LOGW
