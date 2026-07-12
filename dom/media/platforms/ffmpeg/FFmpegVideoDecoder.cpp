@@ -48,7 +48,7 @@
 #  include "H264.h"
 #  include "H265.h"
 #endif
-#if defined(MOZ_USE_HWDECODE) && defined(MOZ_WIDGET_GTK)
+#if defined(MOZ_USE_HWDECODE) && (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT))
 #  ifdef MOZ_USE_HWDECODE_VULKAN
 // DMABufDevice defines its own version of this which collides with the
 // official version in drm_fourcc.h
@@ -60,6 +60,7 @@
 #      define DRM_FORMAT_MOD_INVALID ((1ULL << 56) - 1)
 #    endif
 #  endif
+
 
 #  include "FFmpegVideoFramePool.h"
 #  include "mozilla/layers/DMABUFSurfaceImage.h"
@@ -124,7 +125,7 @@
 #  include "mozilla/MediaDrmRemoteCDMParent.h"
 #endif
 
-#if defined(MOZ_USE_HWDECODE) && defined(MOZ_WIDGET_GTK)
+#if defined(MOZ_USE_HWDECODE) && (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT))
 // Forward declare from va.h
 typedef int VAStatus;
 #  define VA_EXPORT_SURFACE_READ_ONLY 0x0001
@@ -149,7 +150,7 @@ typedef mozilla::layers::BufferRecycleBin BufferRecycleBin;
 
 namespace mozilla {
 
-#if defined(MOZ_USE_HWDECODE) && defined(MOZ_WIDGET_GTK)
+#if defined(MOZ_USE_HWDECODE) && (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT))
 constinit nsTArray<AVCodecID>
     FFmpegVideoDecoder<LIBAV_VER>::mAcceleratedFormats;
 #endif
@@ -305,7 +306,7 @@ static AVPixelFormat ChooseMediaCodecPixelFormat(
 }
 #endif
 
-#if defined(MOZ_USE_HWDECODE) && defined(MOZ_WIDGET_GTK)
+#if defined(MOZ_USE_HWDECODE) && (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT))
 static void VAAPIDisplayReleaseCallback(struct AVHWDeviceContext* hwctx) {
   auto displayHolder = static_cast<VADisplayHolder*>(hwctx->user_opaque);
   displayHolder->Release();
@@ -946,7 +947,7 @@ bool FFmpegVideoDecoder<LIBAV_VER>::ShouldDisableHWDecoding(
   }
 #  endif
 
-#  if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_ANDROID)
+#  if (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)) || defined(MOZ_WIDGET_ANDROID)
   bool supported = false;
   switch (mCodecID) {
     case AV_CODEC_ID_H264:
@@ -977,7 +978,7 @@ bool FFmpegVideoDecoder<LIBAV_VER>::ShouldDisableHWDecoding(
   }
 #  endif
 
-#  ifdef MOZ_WIDGET_GTK
+#  if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   bool isHardwareWebRenderUsed = mImageAllocator &&
                                  (mImageAllocator->GetCompositorBackendType() ==
                                   layers::LayersBackend::LAYERS_WR) &&
@@ -1289,7 +1290,7 @@ static bool IsYUV420Sampling(const AVPixelFormat& aFormat) {
          aFormat == AV_PIX_FMT_YUV420P10LE || aFormat == AV_PIX_FMT_YUV420P12LE;
 }
 
-#  if defined(MOZ_WIDGET_GTK)
+#  if (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT))
 bool FFmpegVideoDecoder<LIBAV_VER>::IsLinuxHDR() const {
   if (!mInfo.mColorPrimaries || !mInfo.mTransferFunction) {
     return false;
@@ -1758,7 +1759,7 @@ MediaResult FFmpegVideoDecoder<LIBAV_VER>::DoDecode(
       return MediaResult(NS_ERROR_OUT_OF_MEMORY, __func__);
     }
 
-#  if defined(MOZ_USE_HWDECODE) && defined(MOZ_WIDGET_GTK)
+#  if defined(MOZ_USE_HWDECODE) && (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT))
     // Release unused VA-API surfaces before avcodec_receive_frame() as
     // ffmpeg recycles VASurface for HW decoding.
     if (mVideoFramePool) {
@@ -1804,7 +1805,7 @@ MediaResult FFmpegVideoDecoder<LIBAV_VER>::DoDecode(
     int64_t timecode = -1;
 #  ifdef MOZ_USE_HWDECODE
     if (IsHardwareAccelerated()) {
-#    ifdef MOZ_WIDGET_GTK
+#    if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
       mDecodeStats.UpdateDecodeTimes(duration);
       if (mDecodeStats.IsDecodingSlow() &&
           !StaticPrefs::media_ffmpeg_disable_software_fallback()) {
@@ -2084,7 +2085,7 @@ gfx::SurfaceFormat FFmpegVideoDecoder<LIBAV_VER>::GetSurfaceFormat() const {
   }
 }
 
-#if defined(MOZ_WIDGET_GTK) && defined(MOZ_USE_HWDECODE)
+#if (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)) && defined(MOZ_USE_HWDECODE)
 // Convert AVChromaLocation to
 // wp_color_representation_surface_v1_chroma_location
 static uint32_t AVChromaLocationToWPChromaLocation(uint32_t aAVChromaLocation) {
@@ -2203,7 +2204,7 @@ MediaResult FFmpegVideoDecoder<LIBAV_VER>::CreateImage(
   return NS_OK;
 }
 
-#if defined(MOZ_USE_HWDECODE) && defined(MOZ_WIDGET_GTK)
+#if defined(MOZ_USE_HWDECODE) && (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT))
 bool FFmpegVideoDecoder<LIBAV_VER>::GetVAAPISurfaceDescriptor(
     VADRMPRIMESurfaceDescriptor* aVaDesc) {
   VASurfaceID surface_id = (VASurfaceID)(uintptr_t)mFrame->data[3];
@@ -2566,7 +2567,7 @@ FFmpegVideoDecoder<LIBAV_VER>::ProcessFlush() {
 #ifdef MOZ_FFMPEG_USE_DURATION_MAP
   mDurationMap.Clear();
 #endif
-#if defined(MOZ_USE_HWDECODE) && defined(MOZ_WIDGET_GTK)
+#if defined(MOZ_USE_HWDECODE) && (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT))
   if (mVideoFramePool) {
     mVideoFramePool->FlushFFmpegFrames();
   }
@@ -2751,8 +2752,7 @@ void FFmpegVideoDecoder<LIBAV_VER>::ProcessShutdown() {
     mLib->av_buffer_unref(&mMediaCodecDeviceContext);
   }
 #endif
-
-#if defined(MOZ_USE_HWDECODE) && defined(MOZ_WIDGET_GTK)
+#if defined(MOZ_USE_HWDECODE) && (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT))
   mVideoFramePool = nullptr;
 #endif
   // Shutdown order for Vulkan hw decode:
@@ -2765,7 +2765,7 @@ void FFmpegVideoDecoder<LIBAV_VER>::ProcessShutdown() {
   // 4. VulkanDeviceHolder::Drop — always (no-op if already nullptr); last
   //    process-wide client may vkDestroyDevice under sDeviceHolders.
   FFmpegDataDecoder<LIBAV_VER>::ProcessShutdown();
-#if defined(MOZ_USE_HWDECODE) && defined(MOZ_WIDGET_GTK)
+#if defined(MOZ_USE_HWDECODE) && (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT))
   if (IsHardwareAccelerated()) {
 #  ifdef MOZ_USE_HWDECODE_VULKAN
     if (mVulkanDecoder.mDevice) {
@@ -2794,8 +2794,9 @@ void FFmpegVideoDecoder<LIBAV_VER>::ProcessShutdown() {
 
 bool FFmpegVideoDecoder<LIBAV_VER>::IsHardwareAccelerated(
     nsACString& aFailureReason) const {
-#if defined(MOZ_USE_HWDECODE) && defined(MOZ_WIDGET_GTK)
+#if defined(MOZ_USE_HWDECODE) && (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT))
   return mUsingV4L2 || !!mVAAPIDeviceContext || !!mVulkanDeviceContext;
+
 #elif defined(MOZ_ENABLE_D3D11VA)
   return !!mD3D11VADeviceContext;
 #elif defined(MOZ_WIDGET_ANDROID)
@@ -2805,7 +2806,7 @@ bool FFmpegVideoDecoder<LIBAV_VER>::IsHardwareAccelerated(
 #endif
 }
 
-#if defined(MOZ_USE_HWDECODE) && defined(MOZ_WIDGET_GTK)
+#if defined(MOZ_USE_HWDECODE) && (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT))
 bool FFmpegVideoDecoder<LIBAV_VER>::IsFormatAccelerated(
     AVCodecID aCodecID) const {
   for (const auto& format : mAcceleratedFormats) {
@@ -3538,7 +3539,7 @@ void FFmpegVideoDecoder<LIBAV_VER>::ReleaseFramesMediaCodec() {
 /* static */ AVCodec* FFmpegVideoDecoder<LIBAV_VER>::FindVideoHardwareAVCodec(
     const FFmpegLibWrapper* aLib, AVCodecID aCodec,
     AVHWDeviceType aDeviceType) {
-#  ifdef MOZ_WIDGET_GTK
+#  if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   if (aDeviceType == AV_HWDEVICE_TYPE_NONE) {
     switch (aCodec) {
       case AV_CODEC_ID_H264:

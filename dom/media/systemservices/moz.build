@@ -71,7 +71,16 @@ if CONFIG["MOZ_WEBRTC"]:
         UNIFIED_SOURCES += [
             "video_engine/placeholder_device_info.cc",
         ]
-        CXXFLAGS += CONFIG["MOZ_GTK3_CFLAGS"]
+        if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
+            CXXFLAGS += CONFIG["MOZ_GTK3_CFLAGS"]
+        elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "qt":
+            # Camera presence via QtDBus; GLib still needed to pump the
+            # third-party libwebrtc portal (GIO) main context.
+            CXXFLAGS += CONFIG["MOZ_QT6_CFLAGS"]
+            if CONFIG["GLIB_CFLAGS"]:
+                CXXFLAGS += CONFIG["GLIB_CFLAGS"]
+            # Qt headers conflict with -fvisibility=hidden wrappers.
+            NoVisibilityFlags()
 
 if CONFIG["OS_TARGET"] == "Android":
     DEFINES["WEBRTC_ANDROID"] = True

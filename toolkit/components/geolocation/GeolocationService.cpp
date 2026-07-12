@@ -14,10 +14,16 @@
 #  include "AndroidLocationProvider.h"
 #endif
 
-#ifdef MOZ_ENABLE_DBUS
+#if defined(MOZ_ENABLE_DBUS) && defined(MOZ_WIDGET_GTK)
 #  include "GeoclueLocationProvider.h"
 #  include "PortalLocationProvider.h"
 #  include "mozilla/WidgetUtilsGtk.h"
+#endif
+
+#if defined(MOZ_ENABLE_DBUS) && defined(MOZ_WIDGET_QT)
+#  include "GeoclueLocationProviderQt.h"
+#  include "PortalLocationProviderQt.h"
+#  include "mozilla/widget/PortalUtils.h"
 #endif
 
 #ifdef MOZ_WIDGET_COCOA
@@ -107,6 +113,34 @@ nsresult GeolocationService::Init(bool aIsOverride) {
     }
   }
 #  endif
+#endif
+
+#if defined(MOZ_WIDGET_QT) && defined(MOZ_ENABLE_DBUS)
+  if (!mProvider && widget::ShouldUsePortal(widget::PortalKind::Location)) {
+    mProvider = new widget::PortalLocationProviderQt();
+    MOZ_LOG(gGeolocationLog, LogLevel::Debug,
+            ("Selected PortalLocationProviderQt"));
+    glean::geolocation::linux_provider
+        .EnumGet(glean::geolocation::LinuxProviderLabel::ePortal)
+        .Set(true);
+  }
+
+  if (!mProvider && StaticPrefs::geo_provider_use_geoclue()) {
+    nsCOMPtr<nsIGeolocationProvider> gcProvider =
+        new widget::GeoclueLocationProviderQt();
+    MOZ_LOG(gGeolocationLog, LogLevel::Debug,
+            ("Checking GeoclueLocationProviderQt"));
+    // The Startup() method will only succeed if Geoclue is available on D-Bus.
+    if (NS_SUCCEEDED(gcProvider->Startup())) {
+      gcProvider->Shutdown();
+      mProvider = std::move(gcProvider);
+      MOZ_LOG(gGeolocationLog, LogLevel::Debug,
+              ("Selected GeoclueLocationProviderQt"));
+      glean::geolocation::linux_provider
+          .EnumGet(glean::geolocation::LinuxProviderLabel::eGeoclue)
+          .Set(true);
+    }
+  }
 #endif
 
 #ifdef MOZ_WIDGET_COCOA

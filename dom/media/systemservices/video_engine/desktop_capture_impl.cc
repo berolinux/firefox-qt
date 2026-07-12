@@ -38,6 +38,10 @@
 #  include "modules/desktop_capture/mac/screen_capturer_sck.h"
 #endif
 
+#if defined(WEBRTC_USE_PIPEWIRE)
+#  include <glib.h>
+#endif
+
 using mozilla::NewRunnableMethod;
 using mozilla::TabCapturerWebrtc;
 using mozilla::TimeDuration;
@@ -105,9 +109,11 @@ static DesktopCaptureOptions CreateDesktopCaptureOptions() {
 #endif
 
 #if defined(WEBRTC_USE_PIPEWIRE)
+  // Portal + PipeWire works on Wayland and X11 when a session portal backend
+  // is present (e.g. xdg-desktop-portal-kde / -gnome). X11 capturers remain
+  // the factory fallback when allow_pipewire is false or PW is unavailable.
   options.set_allow_pipewire(
-      mozilla::StaticPrefs::media_webrtc_capture_allow_pipewire() &&
-      webrtc::DesktopCapturer::IsRunningUnderWayland());
+      mozilla::StaticPrefs::media_webrtc_capture_allow_pipewire());
 #endif
 
   return options;
@@ -528,7 +534,15 @@ void DesktopCaptureImpl::InitOnThread(
   mCapturer = std::move(aCapturer);
 
   // We need to call Start on the same thread we call CaptureFrame on.
+  // For PipeWire this opens the xdg-desktop-portal ScreenCast dialog (async
+  // GDBus). Pump GLib so the portal can make progress without waiting for
+  // the UI thread's event loop alone.
   mCapturer->Start(this);
+#if defined(WEBRTC_USE_PIPEWIRE)
+  while (g_main_context_pending(nullptr)) {
+    g_main_context_iteration(nullptr, FALSE);
+  }
+#endif
 
   mCaptureTimer = NS_NewTimer();
   mRequestedCaptureInterval = mozilla::Some(
@@ -564,6 +578,15 @@ void DesktopCaptureImpl::ShutdownOnThread() {
 
 void DesktopCaptureImpl::CaptureFrameOnThread() {
   RTC_DCHECK_RUN_ON(&mCaptureThreadChecker);
+
+#if defined(WEBRTC_USE_PIPEWIRE)
+  // Portal / GDBus responses attach to the default GMainContext; keep them
+  // moving while we poll frames (important on Qt where the UI loop may not
+  // share GLib integration as tightly as GTK).
+  while (g_main_context_pending(nullptr)) {
+    g_main_context_iteration(nullptr, FALSE);
+  }
+#endif
 
   auto start = mozilla::TimeStamp::Now();
   mCapturer->CaptureFrame();

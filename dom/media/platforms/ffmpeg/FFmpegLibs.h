@@ -12,7 +12,7 @@ extern "C" {
 #include "libavcodec/avcodec.h"
 #include "libavutil/avutil.h"
 #include "libavutil/mem.h"
-#if defined(MOZ_USE_HWDECODE) && defined(MOZ_WIDGET_GTK)
+#if defined(MOZ_USE_HWDECODE) && (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT))
 #  include "libavutil/hwcontext_drm.h"
 #  include "libavutil/hwcontext_vaapi.h"
 #  ifdef MOZ_USE_HWDECODE_VULKAN

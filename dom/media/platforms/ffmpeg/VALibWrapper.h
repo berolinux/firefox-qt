@@ -12,7 +12,7 @@
 
 struct PRLibrary;
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
 
 // Forward declare from va.h
 typedef void* VADisplay;
@@ -81,6 +81,6 @@ class VADisplayHolder final
 };
 
 }  // namespace mozilla
-#endif  // MOZ_WIDGET_GTK
+#endif  // MOZ_WIDGET_GTK || MOZ_WIDGET_QT
 
 #endif  // DOM_MEDIA_PLATFORMS_FFMPEG_VALIBWRAPPER_H_

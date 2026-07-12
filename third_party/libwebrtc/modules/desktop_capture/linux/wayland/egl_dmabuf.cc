@@ -19,7 +19,7 @@
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <gbm.h>
-#include <gdk/gdk.h>
+#include <glib-object.h>
 #include <libdrm/drm_fourcc.h>
 #include <spa/param/video/raw.h>
 #include <sys/stat.h>
@@ -31,6 +31,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <optional>
 #include <string>
@@ -240,24 +241,43 @@ static void CloseLibrary(void* library) {
   }
 }
 
+static gpointer GdkDisplayGetDefault() {
+  static auto sGdkDisplayGetDefault =
+      (gpointer (*)(void))dlsym(RTLD_DEFAULT, "gdk_display_get_default");
+  if (!sGdkDisplayGetDefault) {
+    return nullptr;
+  }
+  return sGdkDisplayGetDefault();
+}
+
+// Prefer GDK when linked (GTK Firefox). Fall back to session environment so
+// Qt/QPA builds (no libgdk) still get a platform EGL display for DMA-BUF.
 static bool IsWaylandDisplay() {
   static auto sGdkWaylandDisplayGetType =
-    (GType (*)(void))dlsym(RTLD_DEFAULT, "gdk_wayland_display_get_type");
-  if (!sGdkWaylandDisplayGetType) {
+      (GType (*)(void))dlsym(RTLD_DEFAULT, "gdk_wayland_display_get_type");
+  gpointer display = GdkDisplayGetDefault();
+  if (sGdkWaylandDisplayGetType && display) {
+    return G_TYPE_CHECK_INSTANCE_TYPE(display, sGdkWaylandDisplayGetType());
+  }
+  const char* xdg_session_type = getenv("XDG_SESSION_TYPE");
+  if (!xdg_session_type || strncmp(xdg_session_type, "wayland", 7) != 0) {
     return false;
   }
-  return (G_TYPE_CHECK_INSTANCE_TYPE ((gdk_display_get_default()),
-                                      sGdkWaylandDisplayGetType()));
+  return getenv("WAYLAND_DISPLAY") != nullptr;
 }
 
 static bool IsX11Display() {
   static auto sGdkX11DisplayGetType =
-    (GType (*)(void))dlsym(RTLD_DEFAULT, "gdk_x11_display_get_type");
-  if (!sGdkX11DisplayGetType) {
+      (GType (*)(void))dlsym(RTLD_DEFAULT, "gdk_x11_display_get_type");
+  gpointer display = GdkDisplayGetDefault();
+  if (sGdkX11DisplayGetType && display) {
+    return G_TYPE_CHECK_INSTANCE_TYPE(display, sGdkX11DisplayGetType());
+  }
+  // Prefer Wayland when both DISPLAY and WAYLAND_DISPLAY are set (XWayland).
+  if (IsWaylandDisplay()) {
     return false;
   }
-  return (G_TYPE_CHECK_INSTANCE_TYPE ((gdk_display_get_default()),
-                                      sGdkX11DisplayGetType()));
+  return getenv("DISPLAY") != nullptr;
 }
 
 RTC_NO_SANITIZE("cfi-icall")

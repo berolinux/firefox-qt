@@ -15,8 +15,18 @@
 #  include "video_engine/placeholder_device_info.h"
 #endif
 
-#if defined(WEBRTC_USE_PIPEWIRE) && defined(MOZ_ENABLE_DBUS)
+#if defined(WEBRTC_USE_PIPEWIRE) && defined(MOZ_ENABLE_DBUS) && \
+    defined(MOZ_WIDGET_GTK)
 #  include "mozilla/widget/AsyncDBus.h"
+#endif
+
+#if defined(WEBRTC_USE_PIPEWIRE) && defined(MOZ_ENABLE_DBUS) && \
+    defined(MOZ_WIDGET_QT)
+#  pragma GCC visibility push(default)
+#  include <QtDBus/QDBusConnection>
+#  include <QtDBus/QDBusMessage>
+#  include <QtDBus/QDBusVariant>
+#  pragma GCC visibility pop
 #endif
 
 #include <memory>
@@ -168,45 +178,76 @@ auto VideoCaptureFactory::InitCameraBackend()
 
 auto VideoCaptureFactory::HasCameraDevice()
     -> RefPtr<VideoCaptureFactory::HasCameraDevicePromise> {
-#if defined(WEBRTC_USE_PIPEWIRE) && defined(MOZ_ENABLE_DBUS)
-  if (mVideoCaptureOptions && mVideoCaptureOptions->allow_pipewire()) {
-    return widget::CreateDBusProxyForBus(
-               G_BUS_TYPE_SESSION, G_DBUS_PROXY_FLAGS_NONE,
-               /* aInterfaceInfo = */ nullptr, "org.freedesktop.portal.Desktop",
-               "/org/freedesktop/portal/desktop",
-               "org.freedesktop.portal.Camera")
-        ->Then(
-            GetCurrentSerialEventTarget(), __func__,
-            [](RefPtr<GDBusProxy>&& aProxy) {
-              GVariant* variant =
-                  g_dbus_proxy_get_cached_property(aProxy, "IsCameraPresent");
-              if (!variant) {
-                return HasCameraDevicePromise::CreateAndReject(
-                    NS_ERROR_NO_INTERFACE,
-                    "VideoCaptureFactory::HasCameraDevice Reject");
-              }
+  if (!mVideoCaptureOptions || !mVideoCaptureOptions->allow_pipewire()) {
+    return HasCameraDevicePromise::CreateAndReject(
+        NS_ERROR_NOT_IMPLEMENTED,
+        "VideoCaptureFactory::HasCameraDevice Reject");
+  }
 
-              if (!g_variant_is_of_type(variant, G_VARIANT_TYPE_BOOLEAN)) {
-                return HasCameraDevicePromise::CreateAndReject(
-                    NS_ERROR_UNEXPECTED,
-                    "VideoCaptureFactory::HasCameraDevice Reject");
-              }
-
-              const bool hasCamera = g_variant_get_boolean(variant);
-              g_variant_unref(variant);
-              return HasCameraDevicePromise::CreateAndResolve(
-                  hasCamera ? Available : NotAvailable,
-                  "VideoCaptureFactory::HasCameraDevice Resolve");
-            },
-            [](GUniquePtr<GError>&& aError) {
+#if defined(WEBRTC_USE_PIPEWIRE) && defined(MOZ_ENABLE_DBUS) && \
+    defined(MOZ_WIDGET_QT)
+  // QtDBus — no GIO.
+  QDBusMessage msg = QDBusMessage::createMethodCall(
+      QStringLiteral("org.freedesktop.portal.Desktop"),
+      QStringLiteral("/org/freedesktop/portal/desktop"),
+      QStringLiteral("org.freedesktop.DBus.Properties"),
+      QStringLiteral("Get"));
+  msg << QStringLiteral("org.freedesktop.portal.Camera")
+      << QStringLiteral("IsCameraPresent");
+  const QDBusMessage reply =
+      QDBusConnection::sessionBus().call(msg, QDBus::Block, 2000);
+  if (reply.type() != QDBusMessage::ReplyMessage ||
+      reply.arguments().isEmpty()) {
+    return HasCameraDevicePromise::CreateAndReject(
+        NS_ERROR_NO_INTERFACE, "VideoCaptureFactory::HasCameraDevice Reject");
+  }
+  QVariant value = reply.arguments().at(0);
+  if (value.userType() == qMetaTypeId<QDBusVariant>()) {
+    value = value.value<QDBusVariant>().variant();
+  }
+  const bool hasCamera = value.toBool();
+  return HasCameraDevicePromise::CreateAndResolve(
+      hasCamera ? Available : NotAvailable,
+      "VideoCaptureFactory::HasCameraDevice Resolve");
+#elif defined(WEBRTC_USE_PIPEWIRE) && defined(MOZ_ENABLE_DBUS) && \
+    defined(MOZ_WIDGET_GTK)
+  return widget::CreateDBusProxyForBus(
+             G_BUS_TYPE_SESSION, G_DBUS_PROXY_FLAGS_NONE,
+             /* aInterfaceInfo = */ nullptr, "org.freedesktop.portal.Desktop",
+             "/org/freedesktop/portal/desktop",
+             "org.freedesktop.portal.Camera")
+      ->Then(
+          GetCurrentSerialEventTarget(), __func__,
+          [](RefPtr<GDBusProxy>&& aProxy) {
+            GVariant* variant =
+                g_dbus_proxy_get_cached_property(aProxy, "IsCameraPresent");
+            if (!variant) {
               return HasCameraDevicePromise::CreateAndReject(
                   NS_ERROR_NO_INTERFACE,
                   "VideoCaptureFactory::HasCameraDevice Reject");
-            });
-  }
-#endif
+            }
+
+            if (!g_variant_is_of_type(variant, G_VARIANT_TYPE_BOOLEAN)) {
+              return HasCameraDevicePromise::CreateAndReject(
+                  NS_ERROR_UNEXPECTED,
+                  "VideoCaptureFactory::HasCameraDevice Reject");
+            }
+
+            const bool hasCamera = g_variant_get_boolean(variant);
+            g_variant_unref(variant);
+            return HasCameraDevicePromise::CreateAndResolve(
+                hasCamera ? Available : NotAvailable,
+                "VideoCaptureFactory::HasCameraDevice Resolve");
+          },
+          [](GUniquePtr<GError>&& aError) {
+            return HasCameraDevicePromise::CreateAndReject(
+                NS_ERROR_NO_INTERFACE,
+                "VideoCaptureFactory::HasCameraDevice Reject");
+          });
+#else
   return HasCameraDevicePromise::CreateAndReject(
       NS_ERROR_NOT_IMPLEMENTED, "VideoCaptureFactory::HasCameraDevice Reject");
+#endif
 }
 
 auto VideoCaptureFactory::UpdateCameraAvailability()

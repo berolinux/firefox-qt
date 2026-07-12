@@ -10,7 +10,6 @@
 #include "mozilla/DataMutex.h"
 #include "mozilla/ScopeExit.h"
 #include "nsPrintfCString.h"
-
 #ifdef MOZ_USE_HWDECODE_VULKAN
 #  include <dlfcn.h>
 #  include <errno.h>
@@ -1105,7 +1104,7 @@ bool FFmpegVideoDecoder<LIBAV_VER>::FFmpegVulkanVideoDecoder::
     SelectVulkanDecoderPhysicalDevice(const StaticMutexAutoLock& aProofOfLock,
                                       const nsCString& aRendererNode) {
   uint32_t rendererDrmMajor = 0, rendererDrmMinor = 0;
-#  if defined(MOZ_WIDGET_GTK)
+#  if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   if (!aRendererNode.IsEmpty()) {
     struct stat st = {};
     if (stat(aRendererNode.get(), &st) == 0) {

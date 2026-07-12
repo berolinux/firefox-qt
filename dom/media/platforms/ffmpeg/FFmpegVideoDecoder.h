@@ -15,7 +15,7 @@
 #include "PerformanceRecorder.h"
 #include "SimpleMap.h"
 #include "nsTHashMap.h"
-#if defined(MOZ_USE_HWDECODE) && defined(MOZ_WIDGET_GTK)
+#if defined(MOZ_USE_HWDECODE) && (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT))
 #  include "FFmpegVideoFramePool.h"
 #  ifdef MOZ_USE_HWDECODE_VULKAN
 #    include "VulkanDeviceHolder.h"
@@ -276,7 +276,7 @@ class FFmpegVideoDecoder<LIBAV_VER>
   RefPtr<layers::AndroidImageReader> mAndroidImageReader;
 #endif
 
-#if defined(MOZ_USE_HWDECODE) && defined(MOZ_WIDGET_GTK)
+#if defined(MOZ_USE_HWDECODE) && (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT))
   bool IsLinuxHDR() const;
   MediaResult InitVAAPIDecoder();
   MediaResult InitV4L2Decoder();
