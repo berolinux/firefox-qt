@@ -1,0 +1,1307 @@
+/* Any copyright is dedicated to the Public Domain.
+   https://creativecommons.org/publicdomain/zero/1.0/ */
+
+"use strict";
+
+const { sinon } = ChromeUtils.importESModule(
+  "resource://testing-common/Sinon.sys.mjs"
+);
+
+const MOZ_ECHO_OPTIONS_RAW = { taskName: "moz-echo", timeoutMS: -1 };
+const MOZ_ECHO_OPTIONS = new PipelineOptions({
+  taskName: "moz-echo",
+  timeoutMS: -1,
+});
+
+function getRunResponse(responseSpy) {
+  const responseCall = responseSpy
+    .getCalls()
+    .find(call => call.args[0].data.type === "EnginePort:RunResponse");
+  return responseCall?.args[0].data;
+}
+
+async function waitForRunResponse(responseSpy) {
+  await TestUtils.waitForCondition(
+    () => getRunResponse(responseSpy),
+    "The child sends the canceled request's response",
+    100,
+    100
+  );
+  return getRunResponse(responseSpy);
+}
+
+async function checkCanceledRunWithLateResponse(request) {
+  const { cleanup, remoteClients } = await setup();
+  let responseSpy;
+
+  try {
+    const engine = await createEngine(MOZ_ECHO_OPTIONS_RAW);
+    const warmup = engine.run({ data: "Initialize the engine" });
+    await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+    await warmup;
+
+    responseSpy = sinon.spy(engine, "handlePortMessage");
+    const successCount =
+      Glean.firefoxAiRuntime.runInferenceSuccessFlow.testGetValue()?.length ??
+      0;
+    const failureCount =
+      Glean.firefoxAiRuntime.runInferenceFailure.testGetValue()?.length ?? 0;
+    const controller = new AbortController();
+    const reason = new DOMException("Canceled by the caller", "AbortError");
+    const pending = engine.run(request, { signal: controller.signal });
+
+    controller.abort(reason);
+
+    await Assert.rejects(
+      pending,
+      error => error === reason,
+      "The caller receives the original cancellation reason without waiting for the backend"
+    );
+    Assert.ok(
+      !getRunResponse(responseSpy),
+      "The caller is released before the initialized backend sends its response"
+    );
+    const lateResponse = await waitForRunResponse(responseSpy);
+    Assert.equal(
+      Glean.firefoxAiRuntime.runInferenceSuccessFlow.testGetValue()?.length ??
+        0,
+      successCount,
+      "The canceled request does not record a success event"
+    );
+    Assert.equal(
+      Glean.firefoxAiRuntime.runInferenceFailure.testGetValue()?.length ?? 0,
+      failureCount,
+      "The canceled request does not record a backend failure event"
+    );
+
+    const next = await engine.run({ data: "Next request" });
+    Assert.equal(
+      next.output.echo,
+      "Next request",
+      "A new request receives its own response after cancellation"
+    );
+    Assert.equal(
+      Glean.firefoxAiRuntime.runInferenceSuccessFlow.testGetValue()?.length ??
+        0,
+      successCount + 1,
+      "Only the new request records a success event"
+    );
+    return lateResponse;
+  } finally {
+    await EngineProcess.destroyMLEngine()
+      .then(() => cleanup())
+      .finally(() => responseSpy?.restore());
+  }
+}
+
+add_task(
+  async function test_canceled_run_does_not_start_after_initialization() {
+    const { cleanup, remoteClients } = await setup();
+    let responseSpy;
+
+    try {
+      const engine = await createEngine(MOZ_ECHO_OPTIONS_RAW);
+      responseSpy = sinon.spy(engine, "handlePortMessage");
+      const controller = new AbortController();
+      const reason = new DOMException(
+        "Canceled during initialization",
+        "AbortError"
+      );
+      const pending = engine.run("throw", { signal: controller.signal });
+
+      controller.abort(reason);
+
+      await Assert.rejects(
+        pending,
+        error => error === reason,
+        "The caller receives cancellation while initialization is pending"
+      );
+      Assert.ok(
+        !getRunResponse(responseSpy),
+        "The runtime download is still pending"
+      );
+
+      await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+      const canceledResponse = await waitForRunResponse(responseSpy);
+      Assert.equal(
+        canceledResponse.error?.name,
+        "AbortError",
+        "The child cancels the request before the worker can throw its execution error"
+      );
+      Assert.equal(
+        canceledResponse.response,
+        null,
+        "The canceled request does not produce an inference result"
+      );
+
+      const next = await engine.run({ data: "Next request" });
+      Assert.equal(
+        next.output.echo,
+        "Next request",
+        "The initialized engine can execute another request after cancellation"
+      );
+    } finally {
+      await EngineProcess.destroyMLEngine()
+        .then(() => cleanup())
+        .finally(() => responseSpy?.restore());
+    }
+  }
+);
+
+add_task(async function test_canceled_run_ignores_late_success() {
+  const { response, error } = await checkCanceledRunWithLateResponse({
+    data: "Canceled request",
+  });
+  Assert.ok(!error, "The backend completes the request despite cancellation");
+  Assert.equal(
+    response.output.echo,
+    "Canceled request",
+    "The late response belongs to the canceled request"
+  );
+});
+
+add_task(async function test_canceled_run_ignores_late_backend_error() {
+  const { error } = await checkCanceledRunWithLateResponse("throw");
+  Assert.ok(
+    error?.message.includes('Received the message "throw"'),
+    "The backend error arrives after the caller has already received cancellation"
+  );
+});
+
+async function waitForEngineStatus(engineInstance, status) {
+  await TestUtils.waitForCondition(async () => {
+    let statusByEngineId = new Map(
+      await engineInstance.mlEngineParent.getStatusByEngineId()
+    );
+    return statusByEngineId.get(engineInstance.engineId)?.status == status;
+  }, `Engine is ${status}`);
+}
+
+async function killInferenceProcess() {
+  let { osPid } = ChromeUtils.getAllDOMProcesses().find(
+    process => process.remoteType == "inference"
+  );
+  let mm;
+  for (let i = 0; i < Services.ppmm.childCount; i++) {
+    if (Services.ppmm.getChildAt(i).osPid == osPid) {
+      mm = Services.ppmm.getChildAt(i);
+      break;
+    }
+  }
+  Assert.ok(mm, "Inference process message manager");
+  await new Promise(resolve => {
+    mm.addMessageListener("MLTest:IntentionalCrash", function listener() {
+      mm.removeMessageListener("MLTest:IntentionalCrash", listener);
+      resolve();
+    });
+    mm.loadProcessScript(
+      "data:,ChromeUtils.privateNoteIntentionalCrash();" +
+        "sendAsyncMessage('MLTest:IntentionalCrash');",
+      false
+    );
+  });
+  Cc["@mozilla.org/processtools-service;1"]
+    .getService(Ci.nsIProcessToolsService)
+    .kill(osPid);
+}
+
+/**
+ * Performing a basic engine initialization and run.
+ */
+add_task(async function test_ml_engine_basics() {
+  const { cleanup, remoteClients } = await setup();
+
+  info("Get the engine");
+  const engineInstance = await createEngine(MOZ_ECHO_OPTIONS_RAW);
+
+  info("Check the inference process is running");
+  Assert.equal(await checkForRemoteType("inference"), true);
+
+  info("Run the inference");
+  const inferencePromise = engineInstance.run({ data: "This gets echoed." });
+
+  info("Wait for the pending downloads.");
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+
+  const res = await inferencePromise;
+  Assert.equal(
+    res.output.echo,
+    "This gets echoed.",
+    "The text get echoed exercising the whole flow."
+  );
+
+  Assert.equal(res.output.dtype, "q8", "The config was enriched by RS");
+  ok(
+    !EngineProcess.areAllEnginesTerminated(),
+    "The engine process is still active."
+  );
+
+  await EngineProcess.destroyMLEngine();
+
+  await cleanup();
+});
+
+/**
+ * Test the Wasm failing to download triggering a rejection.
+ */
+add_task(async function test_ml_engine_wasm_rejection() {
+  const { cleanup, remoteClients } = await setup();
+
+  info("Get the engine");
+  const engineInstance = await createEngine(MOZ_ECHO_OPTIONS_RAW);
+
+  info("Run the inference");
+  const inferencePromise = engineInstance.run({ data: "This gets echoed." });
+
+  info("Wait for the pending downloads.");
+  await remoteClients["ml-onnx-runtime"].rejectPendingDownloads(1);
+
+  let error;
+  try {
+    await inferencePromise;
+  } catch (e) {
+    error = e;
+  }
+
+  is(
+    error?.message,
+    "Intentionally rejecting downloads.",
+    "The error is correctly surfaced."
+  );
+
+  await EngineProcess.destroyMLEngine();
+  await cleanup();
+});
+
+/**
+ * Make sure we don't get race conditions when running several inference runs in parallel
+ */
+add_task(async function test_ml_engine_parallel() {
+  const { cleanup, remoteClients } = await setup();
+
+  // We're doing 10 calls and each echo call will take from 0 to 1000ms
+  // So we're sure we're mixing runs.
+  let sleepTimes = [300, 1000, 700, 0, 500, 900, 400, 800, 600, 100];
+  let numCalls = 10;
+
+  const enginesSeen = new Set();
+  async function run(x) {
+    const engineInstance = await createEngine(MOZ_ECHO_OPTIONS_RAW);
+    enginesSeen.add(engineInstance);
+
+    let msg = `${x} - This gets echoed.`;
+    let res = engineInstance.run({
+      data: msg,
+      sleepTime: sleepTimes[x],
+    });
+
+    await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+    res = await res;
+
+    return res;
+  }
+
+  info(`Run ${numCalls} inferences in parallel`);
+  let runs = [];
+  for (let x = 0; x < numCalls; x++) {
+    runs.push(run(x));
+  }
+
+  // await all runs
+  const results = await Promise.all(runs);
+  Assert.equal(results.length, numCalls, `All ${numCalls} were successful`);
+
+  // check that each one got their own stuff
+  for (let y = 0; y < numCalls; y++) {
+    Assert.equal(
+      results[y].output.echo,
+      `${y} - This gets echoed.`,
+      `Result ${y} is correct`
+    );
+  }
+
+  Assert.equal(enginesSeen.size, 1, "Only one engine was created.");
+
+  ok(
+    !EngineProcess.areAllEnginesTerminated(),
+    "The engine process is still active."
+  );
+
+  await EngineProcess.destroyMLEngine();
+
+  await cleanup();
+});
+
+/**
+ * Tests that the engineInstanceModel's internal errors are correctly surfaced.
+ */
+add_task(async function test_ml_engine_model_error() {
+  const { cleanup, remoteClients } = await setup();
+
+  info("Get the engine");
+  const engineInstance = await createEngine(MOZ_ECHO_OPTIONS_RAW);
+
+  info("Run the inference with a throwing example.");
+  const inferencePromise = engineInstance.run("throw");
+
+  info("Wait for the pending downloads.");
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+
+  let error;
+  try {
+    await inferencePromise;
+  } catch (e) {
+    error = e;
+  }
+  is(
+    error?.message,
+    'Error: Received the message "throw", so intentionally throwing an error.',
+    "The error is correctly surfaced."
+  );
+
+  await EngineProcess.destroyMLEngine();
+  await cleanup();
+});
+
+/**
+ * This test is really similar to the "basic" test, but tests manually destroying
+ * the engineInstance.
+ */
+add_task(async function test_ml_engine_destruction() {
+  const { cleanup, remoteClients } = await setup();
+
+  info("Get engineInstance");
+  const engineInstance = await createEngine(MOZ_ECHO_OPTIONS);
+
+  info("Run the inference");
+  const inferencePromise = engineInstance.run({ data: "This gets echoed." });
+
+  info("Wait for the pending downloads.");
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+
+  Assert.equal(
+    (await inferencePromise).output.echo,
+    "This gets echoed.",
+    "The text get echoed exercising the whole flow."
+  );
+
+  ok(
+    !EngineProcess.areAllEnginesTerminated(),
+    "The engine process is still active."
+  );
+
+  await engineInstance.terminate(
+    /* shutDownIfEmpty */ true,
+    /* replacement */ false
+  );
+
+  info(
+    "The engineInstance is manually destroyed. The cleanup function should wait for the engine process to be destroyed."
+  );
+
+  await EngineProcess.destroyMLEngine();
+  await cleanup();
+});
+
+/**
+ * Tests creating an engine after an error.
+ */
+add_task(async function test_ml_engine_model_error() {
+  const { cleanup, remoteClients } = await setup();
+
+  info("Get the engine");
+  const engineInstance = await createEngine(MOZ_ECHO_OPTIONS_RAW);
+
+  info("Run the inference with a throwing example.");
+  const inferencePromise = engineInstance.run("throw");
+
+  info("Wait for the pending downloads.");
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+
+  let error;
+  try {
+    await inferencePromise;
+  } catch (e) {
+    error = e;
+  }
+  is(
+    error?.message,
+    'Error: Received the message "throw", so intentionally throwing an error.',
+    "The error is correctly surfaced."
+  );
+
+  await EngineProcess.destroyMLEngine();
+  await cleanup();
+});
+
+/**
+ * Tests that we display a nice error message when the "browser.ml.enable" pref is off.
+ */
+add_task(async function test_pref_is_off() {
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.ml.enable", false]],
+  });
+
+  info("Get the engine process");
+  let error;
+
+  try {
+    await EngineProcess.getMLEngineParent();
+  } catch (e) {
+    error = e;
+  }
+  is(
+    error?.message,
+    "MLEngine is disabled. Check the browser.ml prefs.",
+    "The error is correctly surfaced."
+  );
+
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.ml.enable", true]],
+  });
+});
+
+/**
+ * Tests that the engine is reused.
+ */
+add_task(async function test_ml_engine_reuse_same() {
+  const { cleanup, remoteClients } = await setup();
+
+  const options = { taskName: "moz-echo", engineId: "echo" };
+  const engineInstance = await createEngine(options);
+  const inferencePromise = engineInstance.run({ data: "This gets echoed." });
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+
+  Assert.equal(
+    (await inferencePromise).output.echo,
+    "This gets echoed.",
+    "The text get echoed exercising the whole flow."
+  );
+
+  ok(
+    !EngineProcess.areAllEnginesTerminated(),
+    "The engine process is still active."
+  );
+
+  let engineInstance2 = await createEngine(options);
+  is(engineInstance2.engineId, "echo", "The engine ID matches");
+  is(engineInstance, engineInstance2, "The engine is reused.");
+  const inferencePromise2 = engineInstance2.run({ data: "This gets echoed." });
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+
+  Assert.equal(
+    (await inferencePromise2).output.echo,
+    "This gets echoed.",
+    "The text get echoed exercising the whole flow."
+  );
+
+  await EngineProcess.destroyMLEngine();
+  await cleanup();
+});
+
+/**
+ * Tests that engines are reused when only per-request metadata differs.
+ * Telemetry and lifetime fields (featureId, flowId, timeoutMS) must not
+ * cause engine replacement, or concurrent callers would interrupt each
+ * other's in-flight streams.
+ */
+add_task(async function test_ml_engine_reuse_metadata_differs() {
+  const { cleanup, remoteClients } = await setup();
+
+  const engineInstance = await createEngine({
+    taskName: "moz-echo",
+    engineId: "echo-metadata",
+    featureId: "test-feature",
+    flowId: "flow-1",
+    timeoutMS: 1000,
+  });
+  const inferencePromise = engineInstance.run({ data: "This gets echoed." });
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+  Assert.equal(
+    (await inferencePromise).output.echo,
+    "This gets echoed.",
+    "First inference completes."
+  );
+
+  const engineInstance2 = await createEngine({
+    taskName: "moz-echo",
+    engineId: "echo-metadata",
+    featureId: "test-feature",
+    flowId: "flow-2",
+    timeoutMS: 5000,
+  });
+  is(
+    engineInstance,
+    engineInstance2,
+    "Engine is reused when only per-request metadata differs."
+  );
+
+  const inferencePromise2 = engineInstance2.run({ data: "Echoed again." });
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+  Assert.equal(
+    (await inferencePromise2).output.echo,
+    "Echoed again.",
+    "Second inference completes on the reused engine."
+  );
+
+  await EngineProcess.destroyMLEngine();
+  await cleanup();
+});
+
+/**
+ * Tests that we can have two competing engines
+ */
+add_task(async function test_ml_two_engines() {
+  const { cleanup, remoteClients } = await setup();
+
+  const engineInstance = await createEngine({
+    taskName: "moz-echo",
+    engineId: "engine1",
+  });
+  const inferencePromise = engineInstance.run({ data: "This gets echoed." });
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+
+  Assert.equal(
+    (await inferencePromise).output.echo,
+    "This gets echoed.",
+    "The text get echoed exercising the whole flow."
+  );
+
+  ok(
+    !EngineProcess.areAllEnginesTerminated(),
+    "The engine process is still active."
+  );
+
+  let engineInstance2 = await createEngine({
+    taskName: "moz-echo",
+    engineId: "engine2",
+  });
+
+  const inferencePromise2 = engineInstance2.run({ data: "This gets echoed." });
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+
+  Assert.equal(
+    (await inferencePromise2).output.echo,
+    "This gets echoed.",
+    "The text get echoed exercising the whole flow."
+  );
+
+  Assert.notEqual(
+    engineInstance.engineId,
+    engineInstance2.engineId,
+    "Should be different engines"
+  );
+
+  await EngineProcess.destroyMLEngine();
+  await cleanup();
+});
+
+/**
+ * Tests that we can have the same engine reinitialized
+ */
+add_task(async function test_ml_dupe_engines() {
+  const { cleanup, remoteClients } = await setup();
+
+  const engineInstance = await createEngine({
+    taskName: "moz-echo",
+    engineId: "engine1",
+  });
+  const inferencePromise = engineInstance.run({ data: "This gets echoed." });
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+
+  Assert.equal(
+    (await inferencePromise).output.echo,
+    "This gets echoed.",
+    "The text get echoed exercising the whole flow."
+  );
+
+  ok(
+    !EngineProcess.areAllEnginesTerminated(),
+    "The engine process is still active."
+  );
+
+  let engineInstance2 = await createEngine({
+    taskName: "moz-echo",
+    engineId: "engine1",
+    numThreads: 2, // engine-identity change forces re-creation
+  });
+  const inferencePromise2 = engineInstance2.run({ data: "This gets echoed." });
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+
+  Assert.equal(
+    (await inferencePromise2).output.echo,
+    "This gets echoed.",
+    "The text get echoed exercising the whole flow."
+  );
+
+  Assert.notEqual(
+    engineInstance,
+    engineInstance2,
+    "Should be different engines"
+  );
+
+  await EngineProcess.destroyMLEngine();
+  await cleanup();
+});
+
+/**
+ * Tests that a worker can have an infinite timeout.
+ */
+add_task(async function test_ml_engine_infinite_worker() {
+  const { cleanup, remoteClients } = await setup();
+
+  const options = { taskName: "moz-echo", timeoutMS: -1 };
+  const engineInstance = await createEngine(options);
+
+  info("Check the inference process is running");
+  Assert.equal(await checkForRemoteType("inference"), true);
+
+  info("Run the inference");
+  const inferencePromise = engineInstance.run({ data: "This gets echoed." });
+
+  info("Wait for the pending downloads.");
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+
+  const res = await inferencePromise;
+  Assert.equal(
+    res.output.echo,
+    "This gets echoed.",
+    "The text get echoed exercising the whole flow."
+  );
+
+  Assert.equal(res.output.timeoutMS, -1, "This should be an infinite worker.");
+  ok(
+    !EngineProcess.areAllEnginesTerminated(),
+    "The engine process is still active."
+  );
+
+  await EngineProcess.destroyMLEngine();
+
+  await cleanup();
+});
+
+/**
+ * Tests that a run lasting longer than the keep alive timeout completes.
+ */
+add_task(async function test_ml_engine_run_outlasts_timeout() {
+  const { cleanup, remoteClients } = await setup();
+
+  const engineInstance = await createEngine({
+    taskName: "moz-echo",
+    timeoutMS: 100,
+  });
+  const inferencePromise = engineInstance.run({
+    data: "This gets echoed.",
+    sleepTime: 1000,
+  });
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+
+  Assert.equal(
+    (await inferencePromise).output.echo,
+    "This gets echoed.",
+    "Echo"
+  );
+
+  await TestUtils.waitForCondition(
+    () => EngineProcess.areAllEnginesTerminated(),
+    "Idle engine terminated"
+  );
+
+  await EngineProcess.destroyMLEngine();
+  await cleanup();
+});
+
+/**
+ * An engine keeps serving runs after the inference process shuts it down for
+ * being idle.
+ */
+add_task(async function test_ml_engine_reopens_after_idle_shutdown() {
+  const { cleanup, remoteClients } = await setup();
+
+  const engineInstance = await createEngine({
+    taskName: "moz-echo",
+    timeoutMS: 100,
+  });
+  const firstRun = engineInstance.run({ data: "Before going idle" });
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+  await firstRun;
+
+  await TestUtils.waitForCondition(
+    () => EngineProcess.areAllEnginesTerminated(),
+    "The idle engine shut down the inference process"
+  );
+  Assert.equal(
+    engineInstance.engineStatus,
+    "suspended",
+    "The engine reports it will reopen on the next run"
+  );
+  const runAfterIdle = engineInstance.run({ data: "After going idle" });
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+  Assert.equal(
+    (await runAfterIdle).output.echo,
+    "After going idle",
+    "run() reopens the engine after an idle shutdown"
+  );
+
+  await TestUtils.waitForCondition(
+    () => EngineProcess.areAllEnginesTerminated(),
+    "The reopened engine also shuts down when idle"
+  );
+  const generator = engineInstance.runWithGenerator({
+    data: "After going idle twice",
+  });
+  const generatorDone = (async () => {
+    let step;
+    do {
+      step = await generator.next();
+    } while (!step.done);
+    return step.value;
+  })();
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+  Assert.equal(
+    (await generatorDone).output.echo,
+    "After going idle twice",
+    "runWithGenerator() reopens the engine after a second idle shutdown"
+  );
+
+  await EngineProcess.destroyMLEngine();
+  await cleanup();
+});
+
+/**
+ * An engine closed by terminate() stays closed.
+ */
+add_task(async function test_ml_engine_terminated_does_not_reopen() {
+  const { cleanup, remoteClients } = await setup();
+
+  const engineInstance = await createEngine({
+    taskName: "moz-echo",
+    timeoutMS: 100,
+  });
+  const firstRun = engineInstance.run({ data: "Before terminating" });
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+  await firstRun;
+
+  await engineInstance.terminate();
+  await Assert.rejects(
+    engineInstance.run({ data: "After terminating" }),
+    /Port does not exist/,
+    "A terminated engine does not reopen"
+  );
+
+  await EngineProcess.destroyMLEngine();
+  await cleanup();
+});
+
+/**
+ * An idle engine runs on the live engine with the same options instead of
+ * replacing it.
+ */
+add_task(async function test_ml_engine_reopen_reuses_live_engine() {
+  const { cleanup, remoteClients } = await setup();
+
+  const idleEngine = await createEngine({
+    taskName: "moz-echo",
+    timeoutMS: 100,
+  });
+  const firstRun = idleEngine.run({ data: "Before going idle" });
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+  await firstRun;
+  await TestUtils.waitForCondition(
+    () => EngineProcess.areAllEnginesTerminated(),
+    "The idle engine shut down the inference process"
+  );
+
+  const liveEngine = await createEngine({
+    taskName: "moz-echo",
+    timeoutMS: -1,
+  });
+  Assert.notEqual(
+    liveEngine,
+    idleEngine,
+    "createEngine returns a second engine"
+  );
+  const liveRun = liveEngine.run({ data: "Live engine" });
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+  await liveRun;
+
+  Assert.equal(
+    (await idleEngine.run({ data: "Reusing the live engine" })).output.echo,
+    "Reusing the live engine",
+    "The idle engine serves the run"
+  );
+  Assert.equal(liveEngine.engineStatus, "ready", "The live engine stays ready");
+  Assert.equal(
+    (await liveEngine.run({ data: "Still live" })).output.echo,
+    "Still live",
+    "The live engine still runs"
+  );
+
+  await idleEngine.terminate();
+  Assert.equal(
+    liveEngine.engineStatus,
+    "ready",
+    "Terminating the old handle leaves the engine it reused ready"
+  );
+  Assert.equal(
+    (await liveEngine.run({ data: "Live after the old handle terminated" }))
+      .output.echo,
+    "Live after the old handle terminated",
+    "The engine the old handle reused still runs"
+  );
+
+  await EngineProcess.destroyMLEngine();
+  await cleanup();
+});
+
+add_task(async function test_ml_engine_terminate_leaves_replacement_running() {
+  const { cleanup, remoteClients } = await setup();
+  try {
+    const idleEngine = await createEngine({
+      taskName: "moz-echo",
+      timeoutMS: 100,
+      numThreads: 1,
+    });
+    const firstRun = idleEngine.run({ data: "Before going idle" });
+    await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+    await firstRun;
+    await TestUtils.waitForCondition(
+      () => EngineProcess.areAllEnginesTerminated(),
+      "The idle engine shut down the inference process"
+    );
+
+    const replacement = await createEngine({
+      taskName: "moz-echo",
+      timeoutMS: -1,
+      numThreads: 2,
+    });
+    const replacementRun = replacement.run({ data: "Replacement engine" });
+    await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+    await replacementRun;
+
+    await idleEngine.terminate();
+    Assert.equal(
+      (await replacement.run({ data: "Still live" })).output.echo,
+      "Still live",
+      "Terminating the old handle leaves the distinct replacement usable"
+    );
+  } finally {
+    await EngineProcess.destroyMLEngine();
+    await cleanup();
+  }
+});
+
+add_task(async function test_ml_engine_terminate_during_reopen() {
+  for (const useGenerator of [false, true]) {
+    const { cleanup, remoteClients } = await setup();
+    try {
+      const engine = await createEngine({
+        taskName: "moz-echo",
+        timeoutMS: 100,
+      });
+      const firstRun = engine.run({ data: "Before going idle" });
+      await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+      await firstRun;
+      await TestUtils.waitForCondition(
+        () => EngineProcess.areAllEnginesTerminated(),
+        "The idle engine shut down the inference process"
+      );
+
+      const request = { data: "Terminated during recovery" };
+      const run = useGenerator
+        ? engine.runWithGenerator(request).next()
+        : engine.run(request);
+      run.catch(() => {});
+      const termination = engine.terminate(true);
+      await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+      await termination;
+      await Assert.rejects(
+        run,
+        /terminated/,
+        `${useGenerator ? "runWithGenerator()" : "run()"} rejects when terminated during recovery`
+      );
+      await TestUtils.waitForCondition(
+        () => EngineProcess.areAllEnginesTerminated(),
+        "Termination also shuts down the reopened engine"
+      );
+    } finally {
+      await EngineProcess.destroyMLEngine();
+      await cleanup();
+    }
+  }
+});
+
+/**
+ * Tests that overlapping runs both complete when they outlast the keep alive timeout.
+ */
+add_task(async function test_ml_engine_overlapping_runs_outlast_timeout() {
+  let { cleanup, remoteClients } = await setup();
+
+  let engineInstance = await createEngine({
+    taskName: "moz-echo",
+    timeoutMS: 100,
+  });
+  let sleepTimes = [200, 1000];
+  let runs = sleepTimes.map(sleepTime =>
+    engineInstance.run({
+      data: `${sleepTime} - This gets echoed.`,
+      sleepTime,
+    })
+  );
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+
+  let results = await Promise.all(runs);
+  for (let [index, sleepTime] of sleepTimes.entries()) {
+    Assert.equal(
+      results[index].output.echo,
+      `${sleepTime} - This gets echoed.`,
+      `Echo ${sleepTime}`
+    );
+  }
+
+  await EngineProcess.destroyMLEngine();
+  await cleanup();
+});
+
+/**
+ * Tests that terminating an engine rejects the runs in progress.
+ */
+add_task(async function test_ml_engine_terminate_rejects_runs() {
+  let { cleanup, remoteClients } = await setup();
+
+  let engineInstance = await createEngine(MOZ_ECHO_OPTIONS_RAW);
+  let inferencePromise = engineInstance.run({
+    data: "This gets echoed.",
+    sleepTime: 5000,
+  });
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+  await waitForEngineStatus(engineInstance, "RUNNING");
+
+  await engineInstance.terminate();
+  await Assert.rejects(inferencePromise, /terminated/, "Terminated run");
+
+  await EngineProcess.destroyMLEngine();
+  await cleanup();
+});
+
+/**
+ * Tests that an inference process crash rejects the runs in progress.
+ */
+add_task(async function test_ml_engine_crash_rejects_runs() {
+  let { cleanup, remoteClients } = await setup();
+
+  let engineInstance = await createEngine(MOZ_ECHO_OPTIONS_RAW);
+  let inferencePromise = engineInstance.run({
+    data: "This gets echoed.",
+    sleepTime: 5000,
+  });
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+  await waitForEngineStatus(engineInstance, "RUNNING");
+
+  await killInferenceProcess();
+  await Assert.rejects(
+    inferencePromise,
+    /inference process was shutdown/,
+    "Crashed run"
+  );
+
+  await EngineProcess.destroyMLEngine();
+  await cleanup();
+});
+
+async function crashInferenceProcess() {
+  const shutdown = TestUtils.topicObserved("ipc:content-shutdown", subject =>
+    subject.QueryInterface(Ci.nsIPropertyBag2).get("abnormal")
+  );
+  await killInferenceProcess();
+  await shutdown;
+}
+
+/**
+ * An engine keeps serving runs after the inference process crashes.
+ */
+add_task(async function test_ml_engine_reopens_after_crash() {
+  const { cleanup, remoteClients } = await setup();
+
+  const engineInstance = await createEngine(MOZ_ECHO_OPTIONS_RAW);
+  const firstRun = engineInstance.run({ data: "Before crashing" });
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+  await firstRun;
+
+  const terminatedEngine = await createEngine({
+    ...MOZ_ECHO_OPTIONS_RAW,
+    engineId: "terminated-engine",
+  });
+  await terminatedEngine.terminate();
+
+  await crashInferenceProcess();
+  Assert.equal(
+    terminatedEngine.engineStatus,
+    "closed",
+    "The crash leaves an explicitly terminated handle closed"
+  );
+  await Assert.rejects(
+    terminatedEngine.run({ data: "After terminating and crashing" }),
+    /Port does not exist/,
+    "run() does not reopen an explicitly terminated handle after a crash"
+  );
+  await Assert.rejects(
+    terminatedEngine
+      .runWithGenerator({ data: "After terminating and crashing" })
+      .next(),
+    /The port is null/,
+    "runWithGenerator() does not reopen an explicitly terminated handle after a crash"
+  );
+  Assert.equal(
+    engineInstance.engineStatus,
+    "suspended",
+    "The crashed engine reports it will reopen on the next run"
+  );
+
+  const runAfterCrash = engineInstance.run({ data: "After crashing" });
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+  Assert.equal(
+    (await runAfterCrash).output.echo,
+    "After crashing",
+    "run() reopens the engine in a new inference process after a crash"
+  );
+
+  await crashInferenceProcess();
+  const generator = engineInstance.runWithGenerator({
+    data: "After crashing twice",
+  });
+  const generatorDone = (async () => {
+    let step;
+    do {
+      step = await generator.next();
+    } while (!step.done);
+    return step.value;
+  })();
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+  Assert.equal(
+    (await generatorDone).output.echo,
+    "After crashing twice",
+    "runWithGenerator() reopens the engine after a second crash"
+  );
+
+  await EngineProcess.destroyMLEngine();
+  await cleanup();
+});
+
+/**
+ * An engine stops reopening once the inference process crashes three times in
+ * a row, and a successful run in between starts the count over.
+ */
+add_task(
+  async function test_ml_engine_stops_reopening_after_repeated_crashes() {
+    const { cleanup, remoteClients } = await setup();
+    const engineInstance = await createEngine(MOZ_ECHO_OPTIONS_RAW);
+    const firstRun = engineInstance.run({ data: "Before crashing" });
+    await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+    await firstRun;
+
+    await crashInferenceProcess();
+    const runAfterCrash = engineInstance.run({ data: "After crashing" });
+    await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+    await runAfterCrash;
+
+    await crashInferenceProcess();
+    for (const attempt of ["second", "third"]) {
+      const run = engineInstance.run({
+        data: `Crashes a ${attempt} time in a row`,
+        sleepTime: 5000,
+      });
+      await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+      await waitForEngineStatus(
+        {
+          mlEngineParent: await EngineProcess.getMLEngineParent(),
+          engineId: engineInstance.engineId,
+        },
+        "RUNNING"
+      );
+      await crashInferenceProcess();
+      await Assert.rejects(
+        run,
+        /inference process was shutdown/,
+        `The ${attempt} crash in a row rejects the run`
+      );
+    }
+
+    await Assert.rejects(
+      engineInstance.run({ data: "After three crashes in a row" }),
+      /crashed 3 times in a row/,
+      "run() stops reopening after three crashes in a row"
+    );
+    Assert.equal(
+      engineInstance.engineStatus,
+      "crashed",
+      "The engine reports it no longer reopens"
+    );
+    await Assert.rejects(
+      engineInstance
+        .runWithGenerator({ data: "After three crashes in a row" })
+        .next(),
+      /The port is null/,
+      "runWithGenerator() does not reopen a crashed engine either"
+    );
+    Assert.ok(
+      !ChromeUtils.getAllDOMProcesses().some(
+        process => process.remoteType == "inference"
+      ),
+      "No inference process was started again"
+    );
+
+    await EngineProcess.destroyMLEngine();
+    await cleanup();
+  }
+);
+
+/**
+ * These status are visualized in about:inference, but aren't used for business
+ * logic.
+ */
+add_task(async function test_ml_engine_get_status_by_engine_id() {
+  const { cleanup, remoteClients } = await setup();
+
+  info("Get the engine");
+  const engineInstance = await createEngine({ taskName: "moz-echo" });
+
+  info("Check the inference process is running");
+  Assert.equal(await checkForRemoteType("inference"), true);
+
+  info("Run the inference");
+  const inferencePromise = engineInstance.run({ data: "This gets echoed." });
+
+  info("Wait for the pending downloads.");
+  await remoteClients["ml-onnx-runtime"].resolvePendingDownloads(1);
+
+  const res = await inferencePromise;
+  Assert.equal(
+    res.output.echo,
+    "This gets echoed.",
+    "The text get echoed exercising the whole flow."
+  );
+
+  const expected = {
+    "default-engine": {
+      status: "IDLE",
+      options: {
+        useExternalDataFormat: false,
+        engineId: "default-engine",
+        featureId: null,
+        taskName: "moz-echo",
+        timeoutMS: 1000,
+        modelHubRootUrl:
+          "chrome://mochitests/content/browser/toolkit/components/ml/tests/browser/data",
+        modelHubUrlTemplate: "{model}/{revision}",
+        modelId: "mozilla/distilvit",
+        modelRevision: "main",
+        flowId: null,
+        tokenizerId: "mozilla/distilvit",
+        tokenizerRevision: "main",
+        processorId: "mozilla/distilvit",
+        processorRevision: "main",
+        logLevel: "All",
+        runtimeFilename: "ort-wasm-simd-threaded.jsep.wasm",
+        staticEmbeddingsOptions: null,
+        device: null,
+        dtype: "q8",
+        numThreads: "NOT_COMPARED",
+        executionPriority: null,
+        kvCacheDtype: null,
+        numContext: 1024,
+        numBatch: 2048,
+        numUbatch: 512,
+        flashAttn: false,
+        useMmap: false,
+        useMlock: true,
+        numThreadsDecoding: null,
+        modelFile: null,
+        backend: null,
+        modelHub: null,
+        baseURL: null,
+        apiKey: null,
+        extraHeaders: null,
+        serviceType: null,
+        purpose: null,
+        maxRetries: null,
+      },
+    },
+  };
+
+  const statusByEngineId = Object.fromEntries(
+    await engineInstance.mlEngineParent.getStatusByEngineId()
+  );
+  statusByEngineId["default-engine"].options.numThreads = "NOT_COMPARED";
+  Assert.deepEqual(statusByEngineId, expected);
+
+  await ok(
+    !EngineProcess.areAllEnginesTerminated(),
+    "The engine process is still active."
+  );
+
+  await EngineProcess.destroyMLEngine();
+
+  await cleanup();
+});
+
+add_task(
+  async function test_deletePreviousModelRevisions_cleans_stale_revision() {
+    const { cleanup } = await setup();
+
+    const mlEngineParent = await EngineProcess.getMLEngineParent();
+
+    const FAKE_HUB =
+      "chrome://mochitests/content/browser/toolkit/components/ml/tests/browser/data";
+    const FAKE_URL_TEMPLATE = "{model}/resolve/{revision}";
+    const TASK_NAME = "regress-2038342-task";
+
+    await mlEngineParent.getModelFile({
+      engineId: "regress-2038342",
+      taskName: TASK_NAME,
+      url: `${FAKE_HUB}/acme/bert/resolve/main/config.json`,
+      rootUrl: FAKE_HUB,
+      urlTemplate: FAKE_URL_TEMPLATE,
+      featureId: TASK_NAME,
+      sessionId: "regress-2038342-session",
+    });
+
+    const hub = mlEngineParent.modelHub;
+    ok(hub, "ModelHub is initialized after getModelFile");
+    const hostname = new URL(FAKE_HUB).hostname;
+    const modelWithHostname = `${hostname}/acme/bert`;
+
+    await hub.cache.put({
+      taskName: TASK_NAME,
+      model: modelWithHostname,
+      revision: "stale-revision",
+      file: "config.json",
+      data: new Blob(["stale-payload"]),
+      headers: { ETag: "STALE_ETAG" },
+    });
+
+    const stalePre = await hub.cache.getFile({
+      model: modelWithHostname,
+      revision: "stale-revision",
+      file: "config.json",
+    });
+    Assert.notEqual(stalePre, null, "Stale revision exists before cleanup");
+
+    await mlEngineParent.deletePreviousModelRevisions();
+
+    const stalePost = await hub.cache.getFile({
+      model: modelWithHostname,
+      revision: "stale-revision",
+      file: "config.json",
+    });
+    Assert.equal(
+      stalePost,
+      null,
+      "Stale revision must be deleted by deletePreviousModelRevisions"
+    );
+
+    await hub.cache.dispose();
+    await EngineProcess.destroyMLEngine();
+    await cleanup();
+  }
+);

@@ -1,0 +1,20 @@
+---
+about:
+  description: A manifest that should round trip
+  android:
+    class: FooNimbus
+    package: com.example.nimbus
+  ios:
+    class: FooNimbus
+    module: App
+channels:
+  - debug
+features:
+  messaging:
+    description: A feature allowing coenrollment
+    allow-coenrollment: true
+    variables:
+      enabled:
+        description: If true, enable this feature
+        type: Boolean
+        default: false

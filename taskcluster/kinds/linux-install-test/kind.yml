@@ -1,0 +1,37 @@
+---
+loader: taskgraph.loader.transform:loader
+
+kind-dependencies:
+    - fetch
+    - source-artifact
+
+transforms:
+    - gecko_taskgraph.transforms.linux_install_test:transforms
+    - taskgraph.transforms.matrix:transforms
+    - gecko_taskgraph.transforms.linux_install_test_symbol:transforms
+    - taskgraph.transforms.task_context:transforms
+    - gecko_taskgraph.transforms.job:transforms
+    - gecko_taskgraph.transforms.task:transforms
+
+tasks-from:
+    - integration.yml
+    - unit.yml
+
+task-defaults:
+    run:
+        using: run-task
+    worker:
+        max-run-time: 1200
+    treeherder:
+        tier: 2
+        kind: test
+    run-on-projects: [all]
+    optimization:
+        skip-unless-changed:
+            - browser/installer/linux/mach_commands.py
+            - browser/installer/linux/script/install-firefox.sh
+            - taskcluster/docker/el-base/Dockerfile
+            - taskcluster/docker/el-raw/Dockerfile
+            - taskcluster/gecko_taskgraph/transforms/linux_install_test.py
+            - taskcluster/gecko_taskgraph/transforms/linux_install_test_symbol.py
+            - taskcluster/kinds/linux-install-test/kind.yml

@@ -1,0 +1,21 @@
+---
+# Excuses itself from some lints, at both levels.
+about:
+  description: Fixture for the lint tests.
+channels:
+  - release
+features:
+  legacy-feature:
+    description: A feature that was designed before there were lints to nudge it.
+    no-lint:
+      - TYPE_IN_NAME
+      - NOT_A_REAL_LINT
+    documentation:
+      - name: User documentation
+        url: https://example.com/legacy-feature
+    variables:
+      max-rows-int:
+        description: The largest number of rows the list is allowed to grow to.
+        type: Int
+        default: 3
+

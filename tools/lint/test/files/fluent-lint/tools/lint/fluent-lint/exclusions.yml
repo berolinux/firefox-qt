@@ -1,0 +1,35 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+---
+ID01:
+    messages:
+        - Invalid_Id
+    files:
+        - excluded.ftl
+ID02:
+    messages: []
+    files: []
+CO01:
+    messages:
+        - bad-firefox-excluded
+    files:
+        - brand-names-excluded.ftl
+TE01:
+    messages: []
+    files: []
+TE02:
+    messages: []
+    files: []
+TE03:
+    messages:
+        - excluded-single-quote
+    files: []
+TE04:
+    messages:
+        - excluded-double-quote
+    files:
+        - typography-excluded.ftl
+TE05:
+    messages: []
+    files: []

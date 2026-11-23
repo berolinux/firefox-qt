@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body>
+<form id="f">
+  <div id="ta" contenteditable="true"></div>
+  <button id="send" data-testid="send-button" type="submit">Send</button>
+</form>
+<script>
+  const prompt = new URL(location.href).searchParams.get("q") || "";
+  const form = document.getElementById("f");
+
+  window.submitCount = 0;
+
+  document.getElementById("ta").textContent = prompt;
+
+  // Simulate ChatGPT's behavior - after sending, replace the editable div
+  // multiple times with the prompt restored
+  function replaceEditable() {
+    const editable = document.querySelector('[contenteditable="true"]');
+    const newDiv = document.createElement("div");
+    newDiv.setAttribute("contenteditable", "true");
+    newDiv.textContent = prompt;
+    editable.replaceWith(newDiv);
+    newDiv.dispatchEvent(new InputEvent("input", { bubbles: true }));
+  }
+
+  form.addEventListener("submit", e => {
+    e.preventDefault();
+    window.submitCount++;
+    setTimeout(() => {
+      replaceEditable();
+      replaceEditable();
+    });
+  });
+</script>
+</body>
+</html>

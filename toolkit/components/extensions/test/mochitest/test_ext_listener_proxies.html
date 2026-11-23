@@ -1,0 +1,142 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+  <title>Test concurrent addListener works, unaffected by unrelated removeListener</title>
+  <script src="/tests/SimpleTest/SimpleTest.js"></script>
+  <script src="/tests/SimpleTest/ExtensionTestUtils.js"></script>
+  <script type="text/javascript" src="head.js"></script>
+  <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
+</head>
+<body>
+
+<script type="text/javascript">
+"use strict";
+
+// This test verifies that when an event has multiple listeners, that the
+// unregistration of an unrelated listener does not prevent other listeners
+// from being notified. This is a regression test for bug 1317154, where proxied
+// event listeners were identified by the API path (e.g. storage.onChanged),
+// and any removeListener call would stop other listeners from being notified.
+add_task(async function test_listener_proxies() {
+  let extension = ExtensionTestUtils.loadExtension({
+    useAddonManager: "temporary",
+
+    manifest: {
+      "permissions": ["storage"],
+    },
+
+    async background() {
+      // Test that adding multiple listeners for the same event works as
+      // expected.
+
+      let awaitChanged = () => new Promise(resolve => {
+        browser.storage.onChanged.addListener(function listener(changes) {
+          browser.test.log(`onChanged fired: ${JSON.stringify(changes)}`);
+          browser.storage.onChanged.removeListener(listener);
+          resolve();
+        });
+      });
+
+      let promises = [
+        awaitChanged(),
+        awaitChanged(),
+      ];
+
+      function removedListener() {}
+      browser.storage.onChanged.addListener(removedListener);
+      browser.storage.onChanged.removeListener(removedListener);
+
+      promises.push(awaitChanged(), awaitChanged());
+
+      browser.test.log("Changing storage, should trigger storage.onChanged")
+      // This used to call storage.local.set, but changed to storage.session.set
+      // in bug 1979063 because storage.local is known to be prone to race
+      // conditions (bug 1977080).
+      await browser.storage.session.set({ foo: "bar" });
+
+      browser.test.log("Waiting for storage.onChanged to fire twice")
+      await Promise.all(promises);
+
+      browser.test.notifyPass("onchanged-listeners");
+    },
+  });
+
+  await extension.startup();
+
+  await extension.awaitFinish("onchanged-listeners");
+
+  await extension.unload();
+});
+
+// This test verifies that the listener proxies in the parent process are
+// cleaned up when listeners are removed. This is a regression test for bug
+// 2087790, where the proxies weren't deleted and so leaked memory.
+add_task(async function test_listener_proxies_removed() {
+  const extension = ExtensionTestUtils.loadExtension({
+    useAddonManager: "temporary",
+    manifest: { permissions: ["storage"] },
+    background: async () => {
+      const assertCount = (expected, description) => {
+        const { promise: assertFinished, resolve } = Promise.withResolvers();
+        const onMessage = message => {
+          if (message === "assert-count-finished") {
+            browser.test.onMessage.removeListener(onMessage);
+            resolve();
+          }
+        };
+        browser.test.onMessage.addListener(onMessage);
+
+        browser.test.sendMessage("assert-count", { expected, description });
+        return assertFinished;
+      };
+
+      const listeners = [() => {}, () => {}];
+
+      await assertCount(0, "No listeners to start with");
+
+      browser.storage.onChanged.addListener(listeners[0]);
+      await assertCount(1, "First listener added");
+
+      browser.storage.onChanged.addListener(listeners[0]);
+      await assertCount(1, "First listener added for a second time");
+
+      browser.storage.onChanged.addListener(listeners[1]);
+      await assertCount(2, "Second listener added");
+
+      browser.storage.onChanged.removeListener(listeners[0]);
+      await assertCount(1, "First listener removed");
+
+      browser.storage.onChanged.removeListener(listeners[1]);
+      await assertCount(0, "Second listener removed");
+
+      browser.storage.onChanged.addListener(listeners[0]);
+      await assertCount(1, "First listener re-added");
+
+      browser.test.sendMessage("finished");
+    },
+  });
+
+  const countListenerProxies = () =>
+    SpecialPowers.spawnChrome([extension.id], id => {
+      const { WebExtensionPolicy } = Cu.getGlobalForObject(Services);
+      const context =
+        WebExtensionPolicy.getByID(id).extension.backgroundContext;
+      return context.listenerProxies.size;
+    });
+
+  extension.onMessage("assert-count", async ({ expected, description }) => {
+    await SimpleTest.promiseWaitForCondition(
+      async () => (await countListenerProxies()) === expected,
+      `Timed out waiting for ${expected} proxies`
+    );
+    is(await countListenerProxies(), expected, description);
+    extension.sendMessage("assert-count-finished");
+  });
+  await extension.startup();
+  await extension.awaitMessage("finished");
+  await extension.unload();
+});
+</script>
+
+</body>
+</html>

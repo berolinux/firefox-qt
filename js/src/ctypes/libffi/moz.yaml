@@ -1,0 +1,44 @@
+schema: 1
+
+bugzilla:
+  product: Core
+  component: js-ctypes
+
+origin:
+  name: libffi
+  description: A portable foreign-function interface library
+  url: http://sourceware.org/libffi
+
+  release: v3.8.1 (2026-11-14T13:15:07Z).
+  revision: v3.8.1
+
+  license: MIT
+  license-file: LICENSE
+
+updatebot:
+  maintainer-phab: "#spidermonkey-reviewers"
+  maintainer-bz: sphink@gmail.com
+  fuzzy-query: "'xpcshell | 'mochitest-chrome-1proc !nofis !msix !-dc !headless !swr !a11y !gpu !standalone"
+  fuzzy-paths:
+    - toolkit/components/ctypes
+  tasks:
+    - type: vendoring
+      enabled: true
+      frequency: every
+
+vendoring:
+  url: https://github.com/libffi/libffi
+  source-hosting: github
+  tracking: tag
+
+  exclude:
+    - "**"
+
+  include:
+    - include/**
+    - src/**
+
+  keep:
+    - LICENSE
+    - README.md
+    - fficonfig.h.in

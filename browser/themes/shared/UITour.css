@@ -1,0 +1,223 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+@namespace html url("http://www.w3.org/1999/xhtml");
+
+:root {
+  --uitour-highlight-background-color-base: var(--color-cyan-30);
+  --uitour-highlight-border-color-animation-start: var(--color-blue-40);
+  --uitour-highlight-border-color-animation-middle: var(--color-red-50);
+}
+
+/* UI Tour */
+
+@keyframes uitour-wobble {
+  from {
+    transform: rotate(0deg) translateX(3px) rotate(0deg);
+  }
+  50% {
+    transform: rotate(360deg) translateX(3px) rotate(-360deg);
+  }
+  to {
+    transform: rotate(720deg) translateX(0) rotate(-720deg);
+  }
+}
+
+@keyframes uitour-zoom {
+  from {
+    transform: scale(0.8);
+  }
+  50% {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(0.8);
+  }
+}
+
+@keyframes uitour-color {
+  from {
+    border-color: var(--uitour-highlight-border-color-animation-start);
+  }
+  50% {
+    border-color: var(--uitour-highlight-border-color-animation-middle);
+  }
+  to {
+    border-color: var(--uitour-highlight-border-color-animation-start);
+  }
+}
+
+#UITourHighlightContainer {
+  appearance: none;
+  pointer-events: none;
+
+  /* Resets the native styles in windows and macOS */
+  border: none;
+  background-color: transparent;
+  -moz-window-shadow: none;
+
+  --panel-border-color: transparent;
+  --panel-background-color: transparent;
+  /* This is a buffer to compensate for the movement in the "wobble" effect,
+     and for the box-shadow of #UITourHighlight. */
+  --panel-padding: 4px;
+  /* Compensate the displacement caused by padding. */
+  /* stylelint-disable-next-line stylelint-plugin-mozilla/use-design-tokens */
+  margin: -4px;
+}
+
+#UITourHighlight {
+  background-color: color-mix(in srgb, var(--uitour-highlight-background-color-base) 30%, transparent);
+  min-height: var(--size-item-medium);
+  min-width: var(--size-item-medium);
+
+  &.rounded-highlight {
+    border-radius: var(--border-radius-small);
+  }
+
+  &[active] {
+    animation-delay: 2s;
+    animation-fill-mode: forwards;
+    animation-iteration-count: infinite;
+    animation-timing-function: linear;
+  }
+
+  &[active="wobble"] {
+    animation-name: uitour-wobble;
+    animation-delay: 0s;
+    animation-duration: 1.5s;
+    animation-iteration-count: 1;
+  }
+
+  &[active="zoom"] {
+    animation-name: uitour-zoom;
+    animation-duration: 1s;
+  }
+
+  &[active="color"] {
+    animation-name: uitour-color;
+    animation-duration: 2s;
+  }
+}
+
+#UITourTooltipBody {
+  align-items: flex-start;
+}
+
+#UITourTooltipTitleContainer {
+  align-items: flex-start;
+  margin-bottom: var(--space-medium);
+}
+
+#UITourTooltipIcon {
+  width: var(--icon-size-xxlarge);
+  height: var(--icon-size-xxlarge);
+  margin-inline-end: var(--space-medium);
+}
+
+#UITourTooltipTitle,
+#UITourTooltipDescription {
+  /* stylelint-disable-next-line stylelint-plugin-mozilla/use-design-tokens */
+  max-width: 20rem;
+}
+
+#UITourTooltipTitle {
+  font-size: var(--font-size-heading-large);
+  font-weight: var(--font-weight-bold);
+  margin: 0;
+}
+
+#UITourTooltipDescription {
+  margin-inline: 0;
+  font-size: var(--font-size-large);
+  line-height: 1.8rem;
+  margin-bottom: 0; /* Override global.css */
+}
+
+#UITourTooltipClose {
+  position: relative;
+  appearance: none;
+  border: none;
+  background-color: transparent;
+  min-width: 0;
+  margin-inline-start: var(--space-xsmall);
+  /* stylelint-disable-next-line stylelint-plugin-mozilla/use-design-tokens */
+  margin-top: -2px;
+}
+
+#UITourTooltipClose > .toolbarbutton-text {
+  display: none;
+}
+
+#UITourTooltipButtons {
+  justify-content: flex-end;
+  background-color: var(--panel-footer-background-color);
+  color: var(--panel-footer-text-color);
+  border-top: 1px solid var(--panel-separator-color);
+  margin: var(--space-medium) calc(-1 * var(--panel-padding)) calc(-1 * var(--panel-padding));
+  padding: var(--panel-padding);
+}
+
+#UITourTooltipButtons > label,
+#UITourTooltipButtons > button {
+  margin: 0 var(--space-large);
+}
+
+#UITourTooltipButtons > label:first-child,
+#UITourTooltipButtons > button:first-child {
+  margin-inline-start: 0;
+}
+
+#UITourTooltipButtons > label:last-child,
+#UITourTooltipButtons > button:last-child {
+  margin-inline-end: 0;
+}
+
+#UITourTooltipButtons > button[image] > .button-box > .button-icon {
+  width: var(--icon-size);
+  height: var(--icon-size);
+  margin-inline-end: var(--space-xsmall);
+}
+
+#UITourTooltipButtons > label,
+#UITourTooltipButtons > button .button-text {
+  font-size: var(--font-size-large);
+}
+
+#UITourTooltipButtons > button:not(.button-link) {
+  appearance: none;
+  background-color: var(--button-background-color);
+  border-radius: var(--border-radius-xsmall);
+  border: 1px solid;
+  border-color: var(--button-border-color);
+  color: var(--button-text-color);
+  padding: var(--space-xsmall) var(--space-xxlarge);
+  transition-property: background-color, border-color;
+  transition-duration: 150ms;
+}
+
+#UITourTooltipButtons > button:not(.button-link, :active):hover {
+  background-color: var(--button-background-color-hover);
+  border-color: var(--button-border-color-hover);
+}
+
+#UITourTooltipButtons > label,
+#UITourTooltipButtons > button.button-link:not(:hover) {
+  appearance: none;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  color: var(--text-color-disabled);
+  padding-inline: var(--space-medium);
+}
+
+#UITourTooltipButtons > button.button-primary {
+  background-color: var(--button-background-color-primary);
+  color: var(--button-text-color-primary);
+  padding-inline: var(--space-xxlarge);
+}
+
+#UITourTooltipButtons > button.button-primary:not(:active):hover {
+  background-color: var(--button-background-color-primary-hover);
+}
