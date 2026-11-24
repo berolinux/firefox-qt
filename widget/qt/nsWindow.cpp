@@ -472,11 +472,24 @@ void nsWindow::Show(bool aState) {
     // Match GTK/Windows: always-on-top Media PiP / alerts must not steal
     // activation. If they do, the originating tab goes inactive, media can
     // pause, and PiP videocontrols stay on the main page.
+    // Also: Qt::Popup panels with WindowDoesNotAcceptFocus (doorhangers,
+    // tooltips, many TB chrome menus) still cause the parent to lose focus on
+    // KDE/Wayland. Without re-activating the parent, chrome goes inactive
+    // (:-moz-window-inactive) and UI like settings/tabs stops responding while
+    // the window drops behind.
+    const bool isNoFocusPopup =
+        IsPopup() && (mQtWindow->flags() & Qt::WindowDoesNotAcceptFocus);
     const bool noStealFocus =
-        mIsAlert || (mAlwaysOnTop && mPiPType != PiPType::DocumentPiP);
+        mIsAlert || isNoFocusPopup ||
+        (mAlwaysOnTop && mPiPType != PiPType::DocumentPiP);
     if (noStealFocus && mTransientParentWidget &&
         mTransientParentWidget->mQtWindow) {
       mTransientParentWidget->mQtWindow->requestActivate();
+    } else if (!IsPopup() && !mIsAlert && ShouldAcceptActivate()) {
+      // New dialogs / top-levels opened from a click must raise on Wayland
+      // (xdg-activation via Qt) or they map behind the parent.
+      mQtWindow->raise();
+      mQtWindow->requestActivate();
     }
 #ifdef ACCESSIBILITY
     if (a11y::ShouldA11yBeEnabled()) {
@@ -1878,6 +1891,21 @@ void nsWindow::OnFocus(bool aFocus) {
     // Focus moved to one of our popups — do not deactivate the browser.
     if (QWindow* focused = QGuiApplication::focusWindow()) {
       if (auto* bridge = qobject_cast<QtWindowBridge*>(focused)) {
+        if (nsWindow* w = bridge->GetWidget()) {
+          if (w->IsPopup() && w->mTransientParentWidget == this) {
+            return;
+          }
+        }
+      }
+    } else {
+      // No Qt focus window: often a Qt::WindowDoesNotAcceptFocus popup took
+      // the surface without becoming focusWindow (common on KDE Wayland).
+      // Keep this chrome window active while any of our popups is visible.
+      for (QWindow* win : QGuiApplication::allWindows()) {
+        auto* bridge = qobject_cast<QtWindowBridge*>(win);
+        if (!bridge || !win->isVisible()) {
+          continue;
+        }
         if (nsWindow* w = bridge->GetWidget()) {
           if (w->IsPopup() && w->mTransientParentWidget == this) {
             return;
