@@ -293,6 +293,8 @@ void QtWindowBridge::mousePressEvent(QMouseEvent* aEvent) {
   if (mWidget && mWidget->ShouldAcceptActivate()) {
     mWidget->NotePopupInteraction();
     requestActivate();
+    // Retries cover TB Finish → idle dialog and KWin restack after the click.
+    mWidget->ScheduleReclaimActivationRetries();
   }
   if (mWidget) {
     mWidget->OnMouseEvent(aEvent, true);
@@ -302,6 +304,11 @@ void QtWindowBridge::mousePressEvent(QMouseEvent* aEvent) {
 
 void QtWindowBridge::mouseReleaseEvent(QMouseEvent* aEvent) {
   if (mWidget) {
+    if (mWidget->ShouldAcceptActivate()) {
+      // Finish/Settings clicks: demotion often races the release + dialog map.
+      mWidget->NotePopupInteraction();
+      mWidget->ScheduleReclaimActivationRetries();
+    }
     mWidget->OnMouseEvent(aEvent, false);
   }
   QWindow::mouseReleaseEvent(aEvent);
