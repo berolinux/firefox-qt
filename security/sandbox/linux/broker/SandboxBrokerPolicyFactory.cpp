@@ -575,12 +575,12 @@ void SandboxBrokerPolicyFactory::InitContentPolicy() {
     policy->AddFutureDir(rdonly, PromiseFlatCString(fontPath).get());
   }
 
-  // Extra configuration/cache dirs in the homedir that we want to allow read
-  // access to.
+  // Extra configuration dirs in the homedir that we want to allow read
+  // access to. Fontconfig cache dirs are handled separately with write
+  // permission (see below) so content processes can update caches.
   std::vector<const char*> extraConfDirsAllow = {
       ".themes",
       ".fonts",
-      ".cache/fontconfig",
   };
 
   // Fallback if XDG_CONFIG_HOME isn't set
@@ -607,6 +607,41 @@ void SandboxBrokerPolicyFactory::InitContentPolicy() {
         }
       }
     }
+
+    // Fontconfig cache dirs need write+create. Upstream grants only read
+    // access, which is enough when caches already exist but produces
+    // "Fontconfig error: No writable cache directories" from every sandboxed
+    // process that loads fonts (content, utility, ...). Directory permissions
+    // on disk look correct; the broker simply denies open(O_WRONLY/O_CREAT).
+    // Keep the scope tight: only the fontconfig cache trees, never ~/.cache
+    // as a whole. System /var/cache/fontconfig stays read-only above.
+    auto addWritableFontconfigCache = [&](const char* relativeToHome) {
+      nsCOMPtr<nsIFile> cacheDir;
+      nsresult r = homeDir->Clone(getter_AddRefs(cacheDir));
+      if (NS_FAILED(r)) {
+        return;
+      }
+      r = cacheDir->AppendRelativeNativePath(nsDependentCString(relativeToHome));
+      if (NS_FAILED(r)) {
+        return;
+      }
+      nsAutoCString tmpPath;
+      r = cacheDir->GetNativePath(tmpPath);
+      if (NS_SUCCEEDED(r)) {
+        // AddFutureDir: dir may be missing on first run; allow create.
+        policy->AddFutureDir(rdwrcr, tmpPath.get());
+      }
+    };
+    nsAutoCString xdgCacheHome(PathFromEnvIfAbsolute("XDG_CACHE_HOME"));
+    if (!xdgCacheHome.IsEmpty()) {
+      nsAutoCString fcCache(xdgCacheHome);
+      fcCache.AppendLiteral("/fontconfig");
+      policy->AddFutureDir(rdwrcr, fcCache.get());
+    } else {
+      addWritableFontconfigCache(".cache/fontconfig");
+    }
+    // Legacy path still listed by fontconfig as a cache candidate.
+    addWritableFontconfigCache(".fontconfig");
 
     // ~/.config/mozilla/ needs to be manually blocked, because the previous
     // loop will allow for ~/.config/ access.
