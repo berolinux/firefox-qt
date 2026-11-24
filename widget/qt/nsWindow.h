@@ -115,6 +115,10 @@ class nsWindow final : public nsIWidget {
   void OnExpose();
   void OnResize(int aWidth, int aHeight);
   void OnMove(int aX, int aY);
+  // Wayland/X11 HiDPI: QWindow devicePixelRatio often starts at 1.0 and jumps
+  // to the real scale after first map/configure. GTK has OnScaleEvent; call
+  // this from DevicePixelRatioChange / resize / expose so Gecko reflows.
+  void OnScalePossiblyChanged();
   // aOldState / aNewState are Qt::WindowStates bitfields.
   void OnWindowStateChanged(int aOldState, int aNewState);
   void OnFocus(bool aFocus);
@@ -208,6 +212,9 @@ class nsWindow final : public nsIWidget {
   // Non-owning; set for popups/dialogs with a widget parent (Wayland placement).
   nsWindow* mTransientParentWidget = nullptr;
   LayoutDeviceIntRect mBounds;
+  // Last observed QWindow/QScreen devicePixelRatio for this widget. 0 = unset.
+  // Used to fire BackingScaleFactorChanged when Wayland reports scale late.
+  double mLastDevicePixelRatio = 0.0;
   // Last size Gecko requested via Resize (device pixels). Wayland xdg_popup
   // configure can under-report size on first map; we never shrink below this.
   LayoutDeviceIntSize mGeckoPopupSize;

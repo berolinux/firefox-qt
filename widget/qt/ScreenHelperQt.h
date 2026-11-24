@@ -24,8 +24,21 @@ class ScreenHelperQt final : public QObject, public ScreenManager::Helper {
   ScreenHelperQt();
   ~ScreenHelperQt() override;
 
+  // Rebuild Gecko's screen list from live QScreen metrics. Safe to call when
+  // a window's devicePixelRatio becomes known after Wayland configure (startup
+  // often samples DPR=1 before the compositor reports the real scale).
+  static void RequestRefreshScreens();
+
  private Q_SLOTS:
   void RefreshScreens();
+  void OnScreenAdded(QScreen* aScreen);
+  void OnScreenRemoved(QScreen* aScreen);
+
+ private:
+  void ConnectScreen(QScreen* aScreen);
+  void DisconnectScreen(QScreen* aScreen);
+
+  static ScreenHelperQt* sInstance;
 };
 
 }  // namespace mozilla::widget

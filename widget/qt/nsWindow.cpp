@@ -20,6 +20,7 @@
 #include "mozilla/widget/PlatformWidgetTypes.h"
 #include "mozilla/EventForwards.h"
 #include "mozilla/MouseEvents.h"
+#include "mozilla/PresShell.h"
 #include "mozilla/TextEventDispatcher.h"
 #include "mozilla/TextEvents.h"
 #include "mozilla/TimeStamp.h"
@@ -1616,7 +1617,55 @@ float nsWindow::GetDPI() {
 
 double nsWindow::GetDefaultScaleInternal() { return DevicePixelRatio(); }
 
+void nsWindow::OnScalePossiblyChanged() {
+  // Popups inherit the transient parent's scale (see DevicePixelRatio()); the
+  // top-level owns scale notifications — same model as GTK OnScaleEvent.
+  if (IsPopup() || mIsDestroyed) {
+    return;
+  }
+
+  const double dpr = DevicePixelRatio();
+  if (mLastDevicePixelRatio > 0.0 &&
+      std::fabs(mLastDevicePixelRatio - dpr) < 1e-6) {
+    return;
+  }
+
+  const double oldDpr = mLastDevicePixelRatio;
+  mLastDevicePixelRatio = dpr;
+
+  // ScreenManager often sampled QScreen::devicePixelRatio()==1 at startup
+  // before Wayland buffer scale was known. Rebuild so content processes get
+  // the real CSS/desktop scale (half-size blurry pages when stuck at 1.0).
+  mozilla::widget::ScreenHelperQt::RequestRefreshScreens();
+
+  // Nothing to reflow yet (Create before AppShell chrome).
+  if (!GetPresShell()) {
+    return;
+  }
+
+  // First sample still at 1.0: common pre-map state; wait for the real scale
+  // instead of thrashing layout. First sample already >1, or any later change,
+  // must push UIResolutionChanged so content is not stuck half-size/blurry.
+  if (oldDpr <= 0.0 && dpr == 1.0) {
+    return;
+  }
+
+  NotifyAPZOfDPIChange();
+  if (PresShell* presShell = GetPresShell()) {
+    presShell->BackingScaleFactorChanged();
+  }
+
+  // Recompute device-pixel bounds under the new scale (DIP size usually
+  // unchanged when only buffer scale flips).
+  if (mQtWindow) {
+    OnResize(mQtWindow->width(), mQtWindow->height());
+  }
+}
+
 void nsWindow::OnExpose() {
+  // Catch late Wayland scale after map when no resize was delivered.
+  OnScalePossiblyChanged();
+
   // Hardware present: WebRender composites on vsync via EGL SwapBuffers.
   if (mUseHardwarePresent) {
     return;
@@ -1637,7 +1686,21 @@ void nsWindow::OnResize(int aWidth, int aHeight) {
   // Qt resize sizes are DIPs; store layout-device (physical) size for Gecko.
   // Prefer live QWindow metrics so we never desync from the platform surface
   // (session restore / maximize can otherwise leave a stale DPR-scaled size).
+  //
+  // Detect DPR changes here too (resize often accompanies Wayland scale
+  // updates). Do not recurse via OnScalePossiblyChanged→OnResize: track
+  // scale inline and notify Gecko after bounds are updated.
   const double dpr = DevicePixelRatio();
+  const bool scaleChanged =
+      mLastDevicePixelRatio > 0.0 &&
+      std::fabs(mLastDevicePixelRatio - dpr) >= 1e-6;
+  if (mLastDevicePixelRatio <= 0.0 || scaleChanged) {
+    mLastDevicePixelRatio = dpr;
+    if (!IsPopup()) {
+      mozilla::widget::ScreenHelperQt::RequestRefreshScreens();
+    }
+  }
+
   int dipW = aWidth;
   int dipH = aHeight;
   if (mQtWindow) {
@@ -1648,13 +1711,14 @@ void nsWindow::OnResize(int aWidth, int aHeight) {
   // Under fractional DPR, lround(lround(dev/dpr)*dpr) is not idempotent and
   // can oscillate by 1 device pixel. If Gecko's current bounds already map to
   // the DIPs Qt reports, keep those device pixels (matches GTK stability and
-  // stops pages from "shaking" on reflow/compositor ticks).
+  // stops pages from "shaking" on reflow/compositor ticks). Always recompute
+  // when scale changed — old device bounds are in a different space.
   auto dipsFromDev = [dpr](int32_t dev) {
     return std::max(1, int(std::lround(double(dev) / dpr)));
   };
   int w;
   int h;
-  if (mBounds.width > 0 && mBounds.height > 0 &&
+  if (!scaleChanged && mBounds.width > 0 && mBounds.height > 0 &&
       dipsFromDev(mBounds.width) == std::max(1, dipW) &&
       dipsFromDev(mBounds.height) == std::max(1, dipH)) {
     w = mBounds.width;
@@ -1692,7 +1756,7 @@ void nsWindow::OnResize(int aWidth, int aHeight) {
       const QPoint pos = mQtWindow->position();
       const int curDipX = int(std::lround(double(oldBounds.x) / dpr));
       const int curDipY = int(std::lround(double(oldBounds.y) / dpr));
-      if (curDipX == pos.x() && curDipY == pos.y()) {
+      if (!scaleChanged && curDipX == pos.x() && curDipY == pos.y()) {
         mBounds.MoveTo(oldBounds.TopLeft());
       } else {
         mBounds.MoveTo(int(std::lround(pos.x() * dpr)),
@@ -1701,8 +1765,9 @@ void nsWindow::OnResize(int aWidth, int aHeight) {
     }
   }
 
-  // Avoid re-entering layout/compositor when nothing actually changed.
-  if (mBounds.IsEqualEdges(oldBounds)) {
+  // Avoid re-entering layout/compositor when nothing actually changed — but
+  // never skip when DPR changed (content must reflow at the new scale).
+  if (!scaleChanged && mBounds.IsEqualEdges(oldBounds)) {
     return;
   }
 
@@ -1714,6 +1779,14 @@ void nsWindow::OnResize(int aWidth, int aHeight) {
   if (mInputRegion.mMargin != 0 || mInputRegion.mFullyTransparent) {
     ApplyInputRegionMask();
   }
+
+  if (scaleChanged && !IsPopup()) {
+    NotifyAPZOfDPIChange();
+    if (PresShell* presShell = GetPresShell()) {
+      presShell->BackingScaleFactorChanged();
+    }
+  }
+
   DispatchResizeEvent();
 }
 
@@ -1763,6 +1836,8 @@ void nsWindow::OnWindowStateChanged(int aOldState, int aNewState) {
 }
 
 void nsWindow::OnMove(int aX, int aY) {
+  // Moving across screens can change devicePixelRatio on multi-monitor.
+  OnScalePossiblyChanged();
   LayoutDeviceIntPoint pos;
   if (IsPopup() && IsWaylandPlatform() && mTransientParentWidget) {
     // Event coords are parent-local on Wayland popups; store Gecko global.
