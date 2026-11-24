@@ -1801,7 +1801,7 @@ bool GLBlitHelper::Blit(DMABufSurface* surface, const gfx::IntRect& destRect,
 }
 #endif
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
 bool GLBlitHelper::BlitYCbCrTexturesToDMABuf(BufferSurface* aSource,
                                              DMABufSurface* aDest) {
   if (aSource->GetTextureCount() != 3) {

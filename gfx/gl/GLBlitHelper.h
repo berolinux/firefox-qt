@@ -45,7 +45,7 @@ class MacIOSurface;
 #  include "mozilla/java/GeckoSurfaceTextureWrappers.h"
 #endif
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
 class BufferSurface;
 #endif
 #if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
@@ -282,7 +282,7 @@ class GLBlitHelper final {
             Maybe<gfxAlphaType> convertAlpha = {},
             gfx::SurfaceFormat aDestFormat = gfx::SurfaceFormat::UNKNOWN) const;
 #endif
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
   bool BlitYCbCrTexturesToDMABuf(BufferSurface* aSource, DMABufSurface* aDest);
 #endif
 

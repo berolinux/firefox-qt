@@ -54,6 +54,13 @@ static constexpr char kTrackPath[] = "/org/mpris/MediaPlayer2/firefox";
 // Unique filenames avoid desktop-shell caching of stale album art (see GTK).
 static uint32_t gImageNumber = 0;
 
+// Firefox 160 removed dom::IsValidImageUrl. MPRIS still publishes only
+// remote http(s) artwork URLs; local art is a file:// path we write ourselves.
+static bool IsValidImageUrl(const nsAString& aUrl) {
+  return StringBeginsWith(aUrl, u"http://"_ns) ||
+         StringBeginsWith(aUrl, u"https://"_ns);
+}
+
 static bool QtIsRunningUnderFlatpak() {
   // Match GTK: presence of /.flatpak-info in the sandbox root.
   return access("/.flatpak-info", F_OK) == 0;
