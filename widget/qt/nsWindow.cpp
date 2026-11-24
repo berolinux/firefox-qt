@@ -1644,8 +1644,27 @@ void nsWindow::OnResize(int aWidth, int aHeight) {
     dipW = mQtWindow->width();
     dipH = mQtWindow->height();
   }
-  int w = std::max(1, int(std::lround(double(dipW) * dpr)));
-  int h = std::max(1, int(std::lround(double(dipH) * dpr)));
+
+  // Under fractional DPR, lround(lround(dev/dpr)*dpr) is not idempotent and
+  // can oscillate by 1 device pixel. If Gecko's current bounds already map to
+  // the DIPs Qt reports, keep those device pixels (matches GTK stability and
+  // stops pages from "shaking" on reflow/compositor ticks).
+  auto dipsFromDev = [dpr](int32_t dev) {
+    return std::max(1, int(std::lround(double(dev) / dpr)));
+  };
+  int w;
+  int h;
+  if (mBounds.width > 0 && mBounds.height > 0 &&
+      dipsFromDev(mBounds.width) == std::max(1, dipW) &&
+      dipsFromDev(mBounds.height) == std::max(1, dipH)) {
+    w = mBounds.width;
+    h = mBounds.height;
+  } else {
+    w = std::max(1, int(std::lround(double(dipW) * dpr)));
+    h = std::max(1, int(std::lround(double(dipH) * dpr)));
+  }
+
+  const LayoutDeviceIntRect oldBounds = mBounds;
 
   if (IsPopup()) {
     // First xdg_popup map often configures a temporary smaller size. Trust the
@@ -1671,15 +1690,25 @@ void nsWindow::OnResize(int aWidth, int aHeight) {
     // Keep top-left in sync with the actual window (fullscreen repositions).
     if (mQtWindow) {
       const QPoint pos = mQtWindow->position();
-      mBounds.MoveTo(int(std::lround(pos.x() * dpr)),
-                     int(std::lround(pos.y() * dpr)));
+      const int curDipX = int(std::lround(double(oldBounds.x) / dpr));
+      const int curDipY = int(std::lround(double(oldBounds.y) / dpr));
+      if (curDipX == pos.x() && curDipY == pos.y()) {
+        mBounds.MoveTo(oldBounds.TopLeft());
+      } else {
+        mBounds.MoveTo(int(std::lround(pos.x() * dpr)),
+                       int(std::lround(pos.y() * dpr)));
+      }
     }
   }
 
-  ResizeWaylandEglWindow(LayoutDeviceIntSize(w, h));
+  // Avoid re-entering layout/compositor when nothing actually changed.
+  if (mBounds.IsEqualEdges(oldBounds)) {
+    return;
+  }
+
+  ResizeWaylandEglWindow(mBounds.Size());
   if (mCompositorWidgetDelegate) {
-    mCompositorWidgetDelegate->NotifyClientSizeChanged(
-        LayoutDeviceIntSize(w, h));
+    mCompositorWidgetDelegate->NotifyClientSizeChanged(mBounds.Size());
   }
   // Input-region margin is relative to the current window size.
   if (mInputRegion.mMargin != 0 || mInputRegion.mFullyTransparent) {
