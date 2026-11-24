@@ -411,6 +411,51 @@ nsresult nsSystemAlertsServiceQt::ShowFreedesktopNotification(
   return NS_OK;
 }
 
+namespace {
+
+// nsAlertsService calls the system backend with nsIAlertCallbacks. This
+// backend still notifies through the older observer topics.
+class AlertCallbacksToObserver final : public nsIObserver {
+ public:
+  NS_DECL_ISUPPORTS
+
+  explicit AlertCallbacksToObserver(nsIAlertCallbacks* aCallbacks)
+      : mCallbacks(aCallbacks) {}
+
+  NS_IMETHOD Observe(nsISupports* aSubject, const char* aTopic,
+                     const char16_t* /* aData */) override {
+    if (!mCallbacks || !aTopic) {
+      return NS_OK;
+    }
+    if (!strcmp(aTopic, "alertshow")) {
+      return mCallbacks->OnAlertShow();
+    }
+    if (!strcmp(aTopic, "alertclickcallback")) {
+      nsCOMPtr<nsIAlertAction> action = do_QueryInterface(aSubject);
+      return mCallbacks->OnAlertClick(action);
+    }
+    if (!strcmp(aTopic, "alertfinished")) {
+      return mCallbacks->OnAlertFinished();
+    }
+    if (!strcmp(aTopic, "alertsettingscallback")) {
+      return mCallbacks->OnAlertSettings();
+    }
+    if (!strcmp(aTopic, "alertdisablecallback")) {
+      return mCallbacks->OnAlertDisable();
+    }
+    return NS_OK;
+  }
+
+ private:
+  virtual ~AlertCallbacksToObserver() = default;
+
+  nsCOMPtr<nsIAlertCallbacks> mCallbacks;
+};
+
+NS_IMPL_ISUPPORTS(AlertCallbacksToObserver, nsIObserver)
+
+}  // namespace
+
 NS_IMETHODIMP
 nsSystemAlertsServiceQt::ShowAlert(nsIAlertNotification* aAlert,
                                    nsIObserver* aAlertListener) {
@@ -427,6 +472,16 @@ nsSystemAlertsServiceQt::ShowAlert(nsIAlertNotification* aAlert,
   nsAutoString name;
   MOZ_TRY(aAlert->GetName(name));
   return ShowFreedesktopNotification(aAlert, aAlertListener, name);
+}
+
+NS_IMETHODIMP
+nsSystemAlertsServiceQt::ShowAlertWithCallbacks(
+    nsIAlertNotification* aAlert, nsIAlertCallbacks* aAlertCallbacks) {
+  nsCOMPtr<nsIObserver> observer;
+  if (aAlertCallbacks) {
+    observer = new AlertCallbacksToObserver(aAlertCallbacks);
+  }
+  return ShowAlert(aAlert, observer);
 }
 
 NS_IMETHODIMP

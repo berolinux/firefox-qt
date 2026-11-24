@@ -332,6 +332,10 @@ if CONFIG["MOZ_WIDGET_TOOLKIT"] == "qt" and CONFIG["COMPILE_ENVIRONMENT"]:
     OS_LIBS += CONFIG["MOZ_QT6_LIBS"]
     # Fontconfig/FreeType used by gfx for Linux desktop.
     OS_LIBS += CONFIG["FT2_LIBS"]
+    # gfxFcPlatformFontList calls system cairo for desktop font options.
+    # Tree cairo renames those symbols, so they must come from libcairo.
+    # GTK gets this transitively from MOZ_GTK3_LIBS.
+    OS_LIBS += ["cairo"]
     # GLib/GIO used by WebRTC portal/desktop capture and other Linux helpers.
     OS_LIBS += CONFIG["GLIB_LIBS"]
 
