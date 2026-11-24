@@ -32,6 +32,7 @@
 #include <QGuiApplication>
 #include <QIcon>
 #include <QSaveFile>
+#include <QSize>
 #include <QStandardPaths>
 #include <QStringList>
 #pragma GCC visibility pop
@@ -101,16 +102,197 @@ static const char* ResolveRemotingName() {
   return "firefox";
 }
 
-static bool DesktopEntryExists(const QString& aBaseName) {
+static QString DesktopEntryPath(const QString& aBaseName) {
+  if (aBaseName.isEmpty()) {
+    return QString();
+  }
   const QString fileName = aBaseName + QLatin1String(".desktop");
   const QStringList dirs =
       QStandardPaths::standardLocations(QStandardPaths::ApplicationsLocation);
   for (const QString& dir : dirs) {
-    if (QFile::exists(dir + QLatin1Char('/') + fileName)) {
+    const QString path = dir + QLatin1Char('/') + fileName;
+    if (QFile::exists(path)) {
+      return path;
+    }
+  }
+  return QString();
+}
+
+static bool DesktopEntryExists(const QString& aBaseName) {
+  return !DesktopEntryPath(aBaseName).isEmpty();
+}
+
+static bool IsReadableFile(const QString& aPath) {
+  const QFileInfo info(aPath);
+  return info.isFile() && info.isReadable();
+}
+
+// Desktop Icon= values use a small escape set. Runs before QApplication, so
+// this cannot go through QSettings (that would create the app object).
+static QString UnescapeDesktopValue(const QString& aValue) {
+  QString out;
+  out.reserve(aValue.size());
+  for (int i = 0; i < aValue.size(); ++i) {
+    if (aValue.at(i) == QLatin1Char('\\') && i + 1 < aValue.size()) {
+      const QChar next = aValue.at(++i);
+      if (next == QLatin1Char('s')) {
+        out += QLatin1Char(' ');
+      } else if (next == QLatin1Char('n')) {
+        out += QLatin1Char('\n');
+      } else if (next == QLatin1Char('t')) {
+        out += QLatin1Char('\t');
+      } else if (next == QLatin1Char('r')) {
+        out += QLatin1Char('\r');
+      } else {
+        out += next;
+      }
+    } else {
+      out += aValue.at(i);
+    }
+  }
+  return out;
+}
+
+static QString DesktopEntryIcon(const QString& aPath) {
+  QFile file(aPath);
+  if (!file.open(QIODevice::ReadOnly)) {
+    return QString();
+  }
+  bool inEntry = false;
+  while (!file.atEnd()) {
+    const QString line = QString::fromUtf8(file.readLine()).trimmed();
+    if (line.isEmpty() || line.startsWith(QLatin1Char('#'))) {
+      continue;
+    }
+    if (line.startsWith(QLatin1Char('['))) {
+      inEntry = line.compare(QLatin1String("[Desktop Entry]"),
+                             Qt::CaseInsensitive) == 0;
+      continue;
+    }
+    if (!inEntry) {
+      continue;
+    }
+    const int eq = line.indexOf(QLatin1Char('='));
+    if (eq <= 0) {
+      continue;
+    }
+    const QString key = line.left(eq).trimmed();
+    // Icon[lang]= is a translation, not the icon name.
+    if (key.compare(QLatin1String("Icon"), Qt::CaseInsensitive) != 0) {
+      continue;
+    }
+    return UnescapeDesktopValue(line.mid(eq + 1).trimmed());
+  }
+  return QString();
+}
+
+static bool FindNamedIconInDir(const QString& aDir, const QString& aName) {
+  static const char* const kExts[] = {".png", ".svg", ".svgz", ".xpm"};
+  for (const char* ext : kExts) {
+    if (IsReadableFile(aDir + QLatin1Char('/') + aName + QLatin1String(ext))) {
       return true;
     }
   }
   return false;
+}
+
+static QStringList IconLookupNames(const QString& aIcon) {
+  QStringList names(aIcon);
+  static const char* const kExts[] = {".png", ".svg", ".svgz", ".xpm"};
+  for (const char* ext : kExts) {
+    const QLatin1String suffix(ext);
+    if (aIcon.endsWith(suffix, Qt::CaseInsensitive) &&
+        aIcon.size() > suffix.size()) {
+      names.append(aIcon.left(aIcon.size() - suffix.size()));
+    }
+  }
+  names.removeDuplicates();
+  return names;
+}
+
+// QIcon::fromTheme needs a QGuiApplication, and this runs before one exists.
+// Follow the icon-theme layout enough to tell "installed" from "missing".
+static bool ThemeIconExists(const QString& aIcon) {
+  if (aIcon.isEmpty()) {
+    return false;
+  }
+  const QStringList names = IconLookupNames(aIcon);
+  QStringList roots;
+  const QString home = QDir::homePath();
+  roots << (home + QLatin1String("/.local/share/icons"))
+        << (home + QLatin1String("/.icons"));
+  const QStringList dataDirs =
+      QStandardPaths::standardLocations(QStandardPaths::GenericDataLocation);
+  for (const QString& dir : dataDirs) {
+    roots << (dir + QLatin1String("/icons"))
+          << (dir + QLatin1String("/pixmaps"));
+  }
+  roots.removeDuplicates();
+
+  for (const QString& root : roots) {
+    for (const QString& name : names) {
+      if (FindNamedIconInDir(root, name)) {
+        return true;
+      }
+    }
+  }
+  for (const QString& root : roots) {
+    const QDir rootDir(root);
+    if (!rootDir.exists()) {
+      continue;
+    }
+    const QStringList themes =
+        rootDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    for (const QString& theme : themes) {
+      const QString themePath = root + QLatin1Char('/') + theme;
+      for (const QString& name : names) {
+        if (FindNamedIconInDir(themePath + QLatin1String("/apps"), name)) {
+          return true;
+        }
+      }
+      const QDir themeDir(themePath);
+      const QStringList sizes =
+          themeDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+      for (const QString& size : sizes) {
+        const QString apps = themePath + QLatin1Char('/') + size +
+                             QLatin1String("/apps");
+        for (const QString& name : names) {
+          if (FindNamedIconInDir(apps, name)) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+  return false;
+}
+
+static bool IconNameResolves(const QString& aIcon, const QString& aDesktopPath) {
+  if (aIcon.isEmpty() || aIcon == QLatin1String(".") ||
+      aIcon == QLatin1String("..")) {
+    return false;
+  }
+  if (aIcon.contains(QLatin1Char('/'))) {
+    if (IsReadableFile(aIcon)) {
+      return true;
+    }
+    if (!QFileInfo(aIcon).isAbsolute() && !aDesktopPath.isEmpty()) {
+      const QString relative = QFileInfo(aDesktopPath).dir().filePath(aIcon);
+      if (IsReadableFile(relative)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  return ThemeIconExists(aIcon);
+}
+
+static bool DesktopEntryHasResolvableIcon(const QString& aBaseName) {
+  const QString path = DesktopEntryPath(aBaseName);
+  if (path.isEmpty()) {
+    return false;
+  }
+  return IconNameResolves(DesktopEntryIcon(path), path);
 }
 
 static QString SelfExecutablePath() {
@@ -121,6 +303,55 @@ static QString SelfExecutablePath() {
     return QString::fromLocal8Bit(buf, int(n));
   }
   return QString();
+}
+
+static QString BundledIconDir() {
+  const QString exe = SelfExecutablePath();
+  if (exe.isEmpty()) {
+    return QString();
+  }
+  return QFileInfo(exe).absolutePath() +
+         QStringLiteral("/browser/chrome/icons/default/");
+}
+
+static QString BundledIconPath() {
+  const QString dir = BundledIconDir();
+  if (dir.isEmpty()) {
+    return QString();
+  }
+  const QStringList names = {QStringLiteral("default48.png"),
+                             QStringLiteral("default256.png"),
+                             QStringLiteral("default32.png"),
+                             QStringLiteral("default16.png")};
+  for (const QString& name : names) {
+    const QString path = dir + name;
+    if (QFileInfo(path).isFile()) {
+      return path;
+    }
+  }
+  return QString();
+}
+
+static QIcon BundledWindowIcon() {
+  QIcon icon;
+  const QString dir = BundledIconDir();
+  if (dir.isEmpty()) {
+    return icon;
+  }
+  const struct {
+    const char* name;
+    int size;
+  } files[] = {
+      {"default16.png", 16}, {"default22.png", 22}, {"default24.png", 24},
+      {"default32.png", 32}, {"default48.png", 48}, {"default256.png", 256},
+  };
+  for (const auto& file : files) {
+    const QString path = dir + QLatin1String(file.name);
+    if (QFileInfo(path).isFile()) {
+      icon.addFile(path, QSize(file.size, file.size));
+    }
+  }
+  return icon;
 }
 
 // xdg-desktop-portal Host Registry requires a resolvable .desktop file.
@@ -159,6 +390,16 @@ static void EnsureUserDesktopEntry(const QString& aBaseName) {
       (gAppData && gAppData->name) ? Utf8(gAppData->name)
                                    : QStringLiteral("Firefox");
 
+  // Icon=firefox with no theme icon is what leaves a blank panel button.
+  // An absolute path is valid in the desktop-entry spec and does not depend
+  // on the icon theme knowing our name.
+  QString icon = BundledIconPath();
+  if (icon.isEmpty()) {
+    icon = QStringLiteral("firefox");
+  } else {
+    icon.replace(QLatin1Char('\\'), QLatin1String("\\\\"));
+  }
+
   QSaveFile file(path);
   if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
     return;
@@ -171,52 +412,84 @@ static void EnsureUserDesktopEntry(const QString& aBaseName) {
                               "GenericName=Web Browser\n"
                               "Comment=Browse the Web\n"
                               "Exec=%2 %u\n"
-                              "Icon=firefox\n"
+                              "Icon=%3\n"
                               "Terminal=false\n"
                               "Categories=Network;WebBrowser;\n"
                               "MimeType=text/html;text/xml;application/"
                               "xhtml+xml;x-scheme-handler/http;"
                               "x-scheme-handler/https;\n"
                               "StartupNotify=true\n"
-                              "StartupWMClass=%3\n"
+                              "StartupWMClass=%4\n"
                               "NoDisplay=false\n")
-                              .arg(displayName, exec, aBaseName)
+                              .arg(displayName, exec, icon, aBaseName)
                               .toUtf8();
   if (file.write(body) == body.size()) {
     file.commit();
   }
 }
 
-// Prefer an installed desktop id (portal lookup). Fall back to remoting name
-// and ensure a user-local .desktop exists so registration can succeed.
-static const char* ResolveDesktopFileId() {
+static bool AcceptDesktopId(const QString& aBase) {
+  const QByteArray utf8 = aBase.toUtf8();
+  if (utf8.isEmpty() || utf8.size() >= qsizetype(sizeof(sDesktopFileId))) {
+    return false;
+  }
+  std::strncpy(sDesktopFileId, utf8.constData(), sizeof(sDesktopFileId) - 1);
+  sDesktopFileId[sizeof(sDesktopFileId) - 1] = '\0';
+  return true;
+}
+
+static QStringList DesktopIdCandidates() {
+  // firefox-qt before the generic remoting name ("firefox"). A leftover
+  // ~/.local/share/applications/firefox.desktop whose Icon= does not exist
+  // must not beat the packaged firefox-qt.desktop that has a real icon.
   QStringList candidates;
-  if (const char* env = PR_GetEnv("MOZ_DESKTOP_FILE_NAME")) {
-    candidates.append(StripDesktopSuffix(QString::fromLocal8Bit(env)));
-  }
+  candidates << QStringLiteral("firefox-qt");
   if (gAppData && gAppData->remotingName) {
-    candidates.append(Utf8(gAppData->remotingName));
+    candidates << Utf8(gAppData->remotingName);
   }
-  candidates << QStringLiteral("firefox") << QStringLiteral("org.mozilla.firefox")
+  candidates << QStringLiteral("firefox")
+             << QStringLiteral("org.mozilla.firefox")
              << QStringLiteral("firefox-esr")
              << QStringLiteral("org.mozilla.firefox-esr")
              << QStringLiteral("org.mozilla.Firefox");
+  candidates.removeDuplicates();
+  return candidates;
+}
 
-  for (const QString& raw : candidates) {
-    const QString base = StripDesktopSuffix(raw);
-    if (base.isEmpty()) {
-      continue;
-    }
-    if (DesktopEntryExists(base)) {
-      const QByteArray utf8 = base.toUtf8();
-      std::strncpy(sDesktopFileId, utf8.constData(),
-                   sizeof(sDesktopFileId) - 1);
-      sDesktopFileId[sizeof(sDesktopFileId) - 1] = '\0';
+// Prefer an installed desktop id whose Icon= actually resolves. Plasma's
+// task manager draws that icon; a missing name is an empty rounded square.
+// Fall back to any existing entry so portals still have an id, then publish
+// a user-local entry for unpackaged runs.
+static const char* ResolveDesktopFileId() {
+  QString envBase;
+  if (const char* env = PR_GetEnv("MOZ_DESKTOP_FILE_NAME")) {
+    envBase = StripDesktopSuffix(QString::fromLocal8Bit(env));
+    if (DesktopEntryHasResolvableIcon(envBase) && AcceptDesktopId(envBase)) {
       return sDesktopFileId;
     }
   }
 
-  // Nothing installed — use remoting name and publish a user-local entry.
+  const QStringList candidates = DesktopIdCandidates();
+  for (const QString& raw : candidates) {
+    const QString base = StripDesktopSuffix(raw);
+    if (DesktopEntryHasResolvableIcon(base) && AcceptDesktopId(base)) {
+      return sDesktopFileId;
+    }
+  }
+
+  // Icon lookup can miss a theme we don't walk. An explicit env id still wins
+  // over a stale firefox.desktop when the file itself exists.
+  if (!envBase.isEmpty() && DesktopEntryExists(envBase) &&
+      AcceptDesktopId(envBase)) {
+    return sDesktopFileId;
+  }
+  for (const QString& raw : candidates) {
+    const QString base = StripDesktopSuffix(raw);
+    if (DesktopEntryExists(base) && AcceptDesktopId(base)) {
+      return sDesktopFileId;
+    }
+  }
+
   const char* remoting = ResolveRemotingName();
   std::strncpy(sDesktopFileId, remoting, sizeof(sDesktopFileId) - 1);
   sDesktopFileId[sizeof(sDesktopFileId) - 1] = '\0';
@@ -258,24 +531,41 @@ static void PrepareQtApplicationIdentity() {
   QGuiApplication::setDesktopFileName(Utf8(desktopId));
 }
 
+static bool ThemeIconHasPixels(const QIcon& aIcon) {
+  if (aIcon.isNull()) {
+    return false;
+  }
+  // A named theme icon can be non-null before its files are resolved.
+  // Scalable icons report no fixed sizes, so also ask for a pixmap.
+  if (!aIcon.availableSizes().isEmpty()) {
+    return true;
+  }
+  return !aIcon.pixmap(48).isNull();
+}
+
 static void ApplyQtApplicationIcon(QApplication* aApp) {
   if (!aApp) {
     return;
   }
-  const char* desktopId =
-      sDesktopFileId[0] ? sDesktopFileId : ResolveRemotingName();
-  QIcon icon = QIcon::fromTheme(Utf8(desktopId));
-  if (icon.isNull() || icon.name().isEmpty()) {
-    icon = QIcon::fromTheme(QStringLiteral("firefox"));
+  QStringList names;
+  names << Utf8(sDesktopFileId[0] ? sDesktopFileId : ResolveRemotingName())
+        << QStringLiteral("firefox-qt") << QStringLiteral("firefox")
+        << QStringLiteral("firefox-esr")
+        << QStringLiteral("org.mozilla.firefox");
+  names.removeDuplicates();
+  for (const QString& name : names) {
+    if (name.isEmpty()) {
+      continue;
+    }
+    const QIcon theme = QIcon::fromTheme(name);
+    if (ThemeIconHasPixels(theme)) {
+      aApp->setWindowIcon(theme);
+      return;
+    }
   }
-  if (icon.isNull()) {
-    icon = QIcon::fromTheme(QStringLiteral("firefox-esr"));
-  }
-  if (icon.isNull()) {
-    icon = QIcon::fromTheme(QStringLiteral("org.mozilla.firefox"));
-  }
-  if (!icon.isNull()) {
-    aApp->setWindowIcon(icon);
+  const QIcon bundled = BundledWindowIcon();
+  if (!bundled.isNull()) {
+    aApp->setWindowIcon(bundled);
   }
 }
 

@@ -38,6 +38,12 @@
 #include "nsReadableUtils.h"
 #include "prenv.h"
 #include "nsAppRunner.h"
+#include "nsIFile.h"
+
+#pragma GCC visibility push(default)
+#include <QFileInfo>
+#include <QIcon>
+#pragma GCC visibility pop
 
 // MOZ_QT_SOFTWARE_PRESENT=1 forces the QBackingStore path (escape hatch).
 static bool QtHardwarePresentAllowed() {
@@ -815,23 +821,72 @@ nsresult nsWindow::SetTitle(const nsAString& aTitle) {
   return NS_OK;
 }
 
+// fromTheme() is non-null for a missing name on some icon engines, and
+// addFile() on a path that is not there still makes isNull() false. Either
+// one would replace a real application icon with an empty pixmap.
+static QIcon QtThemeIconWithPixels(const QString& aName) {
+  if (aName.isEmpty()) {
+    return QIcon();
+  }
+  const QIcon theme = QIcon::fromTheme(aName);
+  if (theme.isNull()) {
+    return QIcon();
+  }
+  if (!theme.availableSizes().isEmpty() || !theme.pixmap(48).isNull()) {
+    return theme;
+  }
+  return QIcon();
+}
+
 void nsWindow::SetIcon(const nsAString& aIconSpec) {
   if (!mQtWindow) {
     return;
   }
-  // aIconSpec is typically a resource name without extension; try common paths.
-  QString base = QString::fromUtf16(
-      reinterpret_cast<const char16_t*>(aIconSpec.BeginReading()),
-      int(aIconSpec.Length()));
+
   QIcon icon;
-  if (!base.isEmpty()) {
-    icon = QIcon::fromTheme(base);
-    if (icon.isNull()) {
-      icon.addFile(base + QStringLiteral(".png"));
+  if (aIconSpec.EqualsLiteral("default")) {
+    // GTK uses the lowercased brand short name ("firefox") for "default".
+    nsAutoString brandName;
+    WidgetUtils::GetBrandShortName(brandName);
+    if (brandName.IsEmpty()) {
+      brandName.AssignLiteral(u"firefox");
+    }
+    nsAutoCString brandUtf8;
+    AppendUTF16toUTF8(brandName, brandUtf8);
+    ToLowerCase(brandUtf8);
+    icon = QtThemeIconWithPixels(
+        QString::fromUtf8(brandUtf8.get(), int(brandUtf8.Length())));
+  } else if (!aIconSpec.IsEmpty()) {
+    icon = QtThemeIconWithPixels(QString::fromUtf16(
+        reinterpret_cast<const char16_t*>(aIconSpec.BeginReading()),
+        int(aIconSpec.Length())));
+  }
+
+  if (icon.isNull() && !aIconSpec.IsEmpty()) {
+    const char16_t* const extensions[] = {u".png",   u"16.png", u"32.png",
+                                          u"48.png", u"64.png", u"128.png",
+                                          u"256.png"};
+    for (const char16_t* ext : extensions) {
+      nsCOMPtr<nsIFile> iconFile;
+      ResolveIconName(aIconSpec, nsDependentString(ext),
+                      getter_AddRefs(iconFile));
+      if (!iconFile) {
+        continue;
+      }
+      nsAutoString path;
+      if (NS_FAILED(iconFile->GetPath(path)) || path.IsEmpty()) {
+        continue;
+      }
+      const QString qpath = QString::fromUtf16(
+          reinterpret_cast<const char16_t*>(path.BeginReading()),
+          int(path.Length()));
+      if (QFileInfo::exists(qpath)) {
+        icon.addFile(qpath);
+      }
     }
   }
-  // Fall back to the application icon so Plasma keeps the Firefox icon
-  // when chrome passes a missing resource name.
+
+  // Keep the application icon when chrome names an icon we cannot load.
   if (icon.isNull()) {
     icon = QGuiApplication::windowIcon();
   }
@@ -1499,8 +1554,12 @@ void nsWindow::SetWindowClass(const nsAString& aXulWinType,
   sanitize(resName);
   sanitize(resClass);
 
-  mQtWindow->setProperty("_q_xdg_app_id",
-                         QString::fromUtf8(resClass.get(), resClass.Length()));
+  // Wayland app_id is QGuiApplication::desktopFileName(), set before
+  // QApplication exists so it matches a desktop file with a real icon.
+  // The XUL class ("Navigator") is not that id. Qt 6's xdg-shell path
+  // does not read _q_xdg_app_id, and writing it would hide firefox-qt
+  // from the panel if a later Qt started honoring the property.
+  // X11 still gets WM_CLASS below, same as GTK.
 
 #ifdef MOZ_X11
   if (!IsWaylandPlatform()) {
