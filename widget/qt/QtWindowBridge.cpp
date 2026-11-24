@@ -273,7 +273,7 @@ void QtWindowBridge::focusOutEvent(QFocusEvent* aEvent) {
 void QtWindowBridge::keyPressEvent(QKeyEvent* aEvent) {
   if (mWidget) {
     if (mWidget->ShouldAcceptActivate()) {
-      mWidget->NotePopupInteraction();
+      mWidget->NoteUserInteraction();
     }
     mWidget->OnKeyEvent(aEvent, true);
   }
@@ -290,11 +290,11 @@ void QtWindowBridge::keyReleaseEvent(QKeyEvent* aEvent) {
 void QtWindowBridge::mousePressEvent(QMouseEvent* aEvent) {
   // Activate only windows that should own chrome focus. Popups, Media PiP and
   // alerts must not steal activation (tab goes inactive, media pauses, etc.).
+  // Do NOT schedule multi-delay reclaims here: that steals input for ~1s after
+  // every click (close button, chrome buttons appear dead).
   if (mWidget && mWidget->ShouldAcceptActivate()) {
-    mWidget->NotePopupInteraction();
+    mWidget->NoteUserInteraction();
     requestActivate();
-    // Retries cover TB Finish → idle dialog and KWin restack after the click.
-    mWidget->ScheduleReclaimActivationRetries();
   }
   if (mWidget) {
     mWidget->OnMouseEvent(aEvent, true);
@@ -304,11 +304,6 @@ void QtWindowBridge::mousePressEvent(QMouseEvent* aEvent) {
 
 void QtWindowBridge::mouseReleaseEvent(QMouseEvent* aEvent) {
   if (mWidget) {
-    if (mWidget->ShouldAcceptActivate()) {
-      // Finish/Settings clicks: demotion often races the release + dialog map.
-      mWidget->NotePopupInteraction();
-      mWidget->ScheduleReclaimActivationRetries();
-    }
     mWidget->OnMouseEvent(aEvent, false);
   }
   QWindow::mouseReleaseEvent(aEvent);
