@@ -45,7 +45,9 @@ class HeadlessCompositorWidgetParent final : public PCompositorWidgetParent,
       const TransparencyMode& aMode) override;
 #endif
 
-#ifdef MOZ_WIDGET_GTK
+#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
+  // GTK and Qt share the CleanupResources protocol message. A headless
+  // widget has no native window resources to release.
   mozilla::ipc::IPCResult RecvCleanupResources() override { return IPC_OK(); }
 #endif
 
