@@ -882,29 +882,45 @@ void nsWindow::ScheduleReclaimActivationRetries() {
   if (!mQtWindow || mIsDestroyed || !ShouldAcceptActivate()) {
     return;
   }
-  // TB Finish → idle showSystemIntegrationDialog, HTML <dialog> close, and
-  // KWin restack often happen tens–hundreds of ms after the click. One
-  // singleShot(0) is not enough for a valid xdg-activation reclaim.
+  // Only for dialog/popup map-unmap (not ordinary clicks). Keep the set
+  // small so we do not thrash focus and block input delivery.
   QPointer<QtWindowBridge> weak = mQtWindow.get();
-  for (int delayMs : {0, 50, 150, 400, 800}) {
+  for (int delayMs : {0, 100, 350}) {
     QTimer::singleShot(delayMs, mQtWindow.get(), [weak]() {
       if (!weak) {
         return;
       }
       if (nsWindow* w = weak->GetWidget()) {
+        // Stop retrying once another of our windows holds focus, or this
+        // window is no longer supposed to accept activation.
+        if (QWindow* focused = QGuiApplication::focusWindow()) {
+          if (focused != weak.data()) {
+            auto* bridge = qobject_cast<QtWindowBridge*>(focused);
+            if (bridge && bridge->GetWidget() &&
+                bridge->GetWidget()->ShouldAcceptActivate()) {
+              return;
+            }
+          }
+        }
         w->ReclaimActivation();
       }
     });
   }
 }
 
-void nsWindow::NotePopupInteraction() {
-  // Cover app-menu → Settings, account-hub Finish → system-integration dialog
-  // (opened via requestIdleCallback), and dialog open/close stacking races.
-  // Still short enough that a deliberate switch to another app is not held
-  // forever.
+void nsWindow::NoteUserInteraction() {
+  // Short: only bridges the immediate focus-out after a click into chrome.
+  const auto until =
+      mozilla::TimeStamp::Now() + mozilla::TimeDuration::FromMilliseconds(400);
+  if (mIgnoreDeactivationUntil.IsNull() || mIgnoreDeactivationUntil < until) {
+    mIgnoreDeactivationUntil = until;
+  }
+}
+
+void nsWindow::NoteChromeLifecycle() {
+  // Longer: popup/dialog show-hide and idle-opened dialogs (TB Finish).
   mIgnoreDeactivationUntil =
-      mozilla::TimeStamp::Now() + mozilla::TimeDuration::FromMilliseconds(2000);
+      mozilla::TimeStamp::Now() + mozilla::TimeDuration::FromMilliseconds(1200);
 }
 
 bool nsWindow::ShouldSuppressDeactivation() const {
@@ -2004,10 +2020,10 @@ void nsWindow::OnFocus(bool aFocus) {
   if (!aFocus) {
     auto keepActiveAndReclaim = [this]() {
       // Skipping WindowDeactivated alone leaves the surface demoted on KWin;
-      // actively reclaim stacking/activation for the chrome window.
-      NotePopupInteraction();
+      // reclaim once (+ next tick). Multi-retries here eat subsequent clicks.
+      NoteChromeLifecycle();
       ReclaimActivation();
-      ScheduleReclaimActivationRetries();
+      ScheduleReclaimActivation();
     };
 
     // Focus moved to one of our transient children (popup or dialog) —
@@ -2023,15 +2039,13 @@ void nsWindow::OnFocus(bool aFocus) {
               keepActiveAndReclaim();
               return;
             }
-            NotePopupInteraction();
-            // Raise dialog (focused), keep parent noted for reclaim on close.
-            w->ReclaimActivation();
-            w->ScheduleReclaimActivationRetries();
+            NoteChromeLifecycle();
+            // Dialog owns focus; do not spam reclaim (blocks input).
             return;
           }
           // Focus moved to another of our top-level windows (not our child).
           if (w != this && w->ShouldAcceptActivate()) {
-            NotePopupInteraction();
+            NoteUserInteraction();
             return;
           }
         }
@@ -2046,10 +2060,7 @@ void nsWindow::OnFocus(bool aFocus) {
       }
     }
   } else {
-    // Gained focus: ensure we are not still stacked behind other apps.
-    if (ShouldSuppressDeactivation() || HasAnyVisibleTransientChild()) {
-      ReclaimActivation();
-    }
+    // Gained focus already implies activation; avoid extra raise() spam.
   }
 
   DispatchActivateEvent(aFocus);
@@ -2074,12 +2085,13 @@ void nsWindow::OnWindowActivation(bool aActive) {
   }
   if (aActive) {
     DispatchActivateEvent(true);
-    ReclaimActivation();
     return;
   }
+  // Demotion during chrome lifecycle (popup/dialog): reclaim lightly.
+  // Never multi-retry from here — that fights the user and freezes input.
   if (ShouldSuppressDeactivation() || HasAnyVisibleTransientChild()) {
     ReclaimActivation();
-    ScheduleReclaimActivationRetries();
+    ScheduleReclaimActivation();
     return;
   }
 }
