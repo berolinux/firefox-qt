@@ -7,6 +7,7 @@ use api::units::*;
 use api::ColorDepth;
 use crate::image_source::resolve_image;
 use crate::picture::ResolvedSurfaceTexture;
+use crate::spatial_node::round_device_pixel;
 use crate::renderer::GpuBufferBuilderF;
 use euclid::{Box2D, SideOffsets2D};
 use crate::gpu_types::{ZBufferId, ZBufferIdGenerator};
@@ -821,14 +822,29 @@ impl CompositeState {
         index
     }
 
-    /// Calculate the device-space rect of a local compositor surface rect
+    /// Calculate the device-space rect of a local compositor surface rect.
+    ///
+    /// The draw compositor blits cached tiles at this rect. Quantize each edge
+    /// before rounding so an edge a few ulps below n+0.5 (a CSS pixel times a
+    /// fractional device scale lands on that tie) cannot flip the blit by a
+    /// pixel against tiles that were not redrawn. Exact n+0.5 is unchanged.
     pub fn get_device_rect(
         &self,
         local_rect: &PictureRect,
         transform_index: CompositorTransformIndex,
     ) -> DeviceRect {
         let transform = &self.transforms[transform_index.0];
-        transform.local_to_device.map_rect(&local_rect).round()
+        let mapped = transform.local_to_device.map_rect(local_rect);
+        DeviceRect::new(
+            DevicePoint::new(
+                round_device_pixel(mapped.min.x),
+                round_device_pixel(mapped.min.y),
+            ),
+            DevicePoint::new(
+                round_device_pixel(mapped.max.x),
+                round_device_pixel(mapped.max.y),
+            ),
+        )
     }
 
     /// Calculate the device-space rect of a local compositor surface rect, normalized
