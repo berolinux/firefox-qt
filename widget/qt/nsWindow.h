@@ -118,9 +118,16 @@ class nsWindow final : public nsIWidget {
   void ReclaimActivation();
   // Same, deferred to the next event-loop turn (after Wayland map/unmap).
   void ScheduleReclaimActivation();
-  // Suppress Gecko deactivation + reclaim for a short window (popup lifecycle).
+  // Several delayed reclaims: Wayland often restacks after map/unmap/idle.
+  void ScheduleReclaimActivationRetries();
+  // Suppress Gecko deactivation + reclaim after recent user input / chrome
+  // lifecycle (app menu, account-hub Finish, dialog open/close).
   void NotePopupInteraction();
   bool ShouldSuppressDeactivation() const;
+  // True if `aOther` is a visible transient child of this window.
+  bool HasVisibleTransientChild(const nsWindow* aOther) const;
+  // True if any of our QWindows is a visible transient child of this.
+  bool HasAnyVisibleTransientChild() const;
 
   void OnExpose();
   void OnResize(int aWidth, int aHeight);
