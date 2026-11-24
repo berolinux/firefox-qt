@@ -81,6 +81,17 @@ if not CONFIG['MOZ_FFVPX_AUDIOONLY']:
             'vulkan.c',
         ]
         SOURCES['hwcontext_vulkan.c'].flags += ['-DMOZ_FFVPX_VULKAN_LIBDRM']
+        # xf86drm.h includes <drm.h> from the libdrm include directory.
+        # The GTK branch below adds these CFLAGS for the whole directory;
+        # Qt enables Vulkan video too and needs them on this file.
+        if CONFIG['MOZ_SYSTEM_LIBDRM']:
+            SOURCES['hwcontext_vulkan.c'].flags += CONFIG['MOZ_LIBDRM_CFLAGS']
+        else:
+            LOCAL_INCLUDES += [
+                '/third_party/drm/drm/',
+                '/third_party/drm/drm/include',
+                '/third_party/drm/drm/include/libdrm',
+            ]
     if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
         LOCAL_INCLUDES += ['/media/mozva']
         SOURCES += [

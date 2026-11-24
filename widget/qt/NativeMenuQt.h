@@ -37,12 +37,6 @@ class NativeMenuQt final : public NativeMenu {
   void OpenSubmenu(dom::Element* aMenuElement) override;
   void CloseSubmenu(dom::Element* aMenuElement) override;
   RefPtr<dom::Element> Element() override;
-  void AddObserver(NativeMenu::Observer* aObserver) override {
-    mObservers.AppendElement(aObserver);
-  }
-  void RemoveObserver(NativeMenu::Observer* aObserver) override {
-    mObservers.RemoveElement(aObserver);
-  }
 
   // Called from QAction::triggered (same translation unit / friend PopulateMenu).
   void OnItemTriggered(dom::Element* aItem);
@@ -61,7 +55,6 @@ class NativeMenuQt final : public NativeMenu {
   mozilla::UniquePtr<QMenu> mMenu;
   bool mShowing = false;
   bool mHideCompletionQueued = false;
-  nsTArray<NativeMenu::Observer*> mObservers;
 };
 
 }  // namespace widget

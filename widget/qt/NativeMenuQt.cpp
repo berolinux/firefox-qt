@@ -72,7 +72,7 @@ static MOZ_CAN_RUN_SCRIPT void PopupActivateItem(dom::Element& aElement) {
                               nsGkAtoms::_false, eCaseMatters)) {
       if (!*checked) {
         aElement.SetAttr(kNameSpaceID_None, nsGkAtoms::checked, u"true"_ns,
-                         true);
+                         true, dom::IsKnownNewAttr::No);
       } else {
         aElement.UnsetAttr(kNameSpaceID_None, nsGkAtoms::checked, true);
       }
@@ -191,10 +191,8 @@ void NativeMenuQt::OnItemTriggered(dom::Element* aItem) {
     return;
   }
   mPendingActivation = aItem;
-  // Match Cocoa: notify before hide / command (closes other menus, sets mode).
-  for (NativeMenu::Observer* o : mObservers.Clone()) {
-    o->OnNativeMenuWillActivateItem(aItem);
-  }
+  // Notify the popup manager before hide / command.
+  OnWillActivateItem(aItem);
 }
 
 void NativeMenuQt::FinishHideAndActivate() {
@@ -282,9 +280,7 @@ void NativeMenuQt::ShowMenuAnchored(nsIFrame* aClickedFrame,
   mShowing = true;
   // Callers already fired popupshowing and approved it.
   FirePopupEvent(eXULPopupShown);
-  for (NativeMenu::Observer* o : mObservers.Clone()) {
-    o->OnNativeMenuOpened();
-  }
+  OnOpened();
 
   nsPresContext* pc = aClickedFrame->PresContext();
   const CSSIntRect aRect = aPopupFrame->GetScreenAnchorRect();
@@ -328,9 +324,7 @@ void NativeMenuQt::ShowMenuAtPosition(nsIFrame* aClickedFrame,
   // nsContextMenu.contentData). A second showing re-enters the constructor
   // without contentData → ownerDoc is undefined (console TypeError).
   FirePopupEvent(eXULPopupShown);
-  for (NativeMenu::Observer* o : mObservers.Clone()) {
-    o->OnNativeMenuOpened();
-  }
+  OnOpened();
 
   nsPresContext* pc = aClickedFrame->PresContext();
   LayoutDeviceIntPoint devPos =
@@ -360,9 +354,7 @@ void NativeMenuQt::OnAboutToHide() {
   mPendingActivation = nullptr;
   FirePopupEvent(eXULPopupHiding);
   FirePopupEvent(eXULPopupHidden);
-  for (NativeMenu::Observer* o : mObservers.Clone()) {
-    o->OnNativeMenuClosed();
-  }
+  OnClosed();
 }
 
 void NativeMenuQt::ActivateItem(dom::Element*, Modifiers, int16_t,
