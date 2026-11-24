@@ -75,22 +75,76 @@ float PhysicalDpiForQScreen(QScreen* aScreen) {
   return best;
 }
 
+ScreenHelperQt* ScreenHelperQt::sInstance = nullptr;
+
 ScreenHelperQt::ScreenHelperQt() {
+  sInstance = this;
   if (auto* app = qGuiApp) {
     connect(app, &QGuiApplication::screenAdded, this,
-            &ScreenHelperQt::RefreshScreens);
+            &ScreenHelperQt::OnScreenAdded);
     connect(app, &QGuiApplication::screenRemoved, this,
-            &ScreenHelperQt::RefreshScreens);
+            &ScreenHelperQt::OnScreenRemoved);
     connect(app, &QGuiApplication::primaryScreenChanged, this,
             &ScreenHelperQt::RefreshScreens);
+    for (QScreen* qs : app->screens()) {
+      ConnectScreen(qs);
+    }
   }
   RefreshScreens();
 }
 
 ScreenHelperQt::~ScreenHelperQt() {
+  if (sInstance == this) {
+    sInstance = nullptr;
+  }
   if (auto* app = qGuiApp) {
+    for (QScreen* qs : app->screens()) {
+      DisconnectScreen(qs);
+    }
     disconnect(app, nullptr, this, nullptr);
   }
+}
+
+/* static */
+void ScreenHelperQt::RequestRefreshScreens() {
+  if (sInstance) {
+    sInstance->RefreshScreens();
+  }
+}
+
+void ScreenHelperQt::ConnectScreen(QScreen* aScreen) {
+  if (!aScreen) {
+    return;
+  }
+  // geometry / DPI signals are the closest thing Qt offers to "scale may have
+  // changed" for QScreen; window-level DevicePixelRatioChange is handled in
+  // nsWindow. Disconnect first so re-connect on screenAdded is idempotent.
+  DisconnectScreen(aScreen);
+  connect(aScreen, &QScreen::geometryChanged, this,
+          &ScreenHelperQt::RefreshScreens);
+  connect(aScreen, &QScreen::availableGeometryChanged, this,
+          &ScreenHelperQt::RefreshScreens);
+  connect(aScreen, &QScreen::physicalDotsPerInchChanged, this,
+          &ScreenHelperQt::RefreshScreens);
+  connect(aScreen, &QScreen::logicalDotsPerInchChanged, this,
+          &ScreenHelperQt::RefreshScreens);
+}
+
+void ScreenHelperQt::DisconnectScreen(QScreen* aScreen) {
+  if (!aScreen) {
+    return;
+  }
+  disconnect(aScreen, nullptr, this, nullptr);
+}
+
+void ScreenHelperQt::OnScreenAdded(QScreen* aScreen) {
+  ConnectScreen(aScreen);
+  RefreshScreens();
+}
+
+void ScreenHelperQt::OnScreenRemoved(QScreen* aScreen) {
+  DisconnectScreen(aScreen);
+  RefreshScreens();
 }
 
 void ScreenHelperQt::RefreshScreens() {

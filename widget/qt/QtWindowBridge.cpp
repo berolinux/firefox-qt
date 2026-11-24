@@ -190,6 +190,12 @@ bool QtWindowBridge::event(QEvent* aEvent) {
                                     int(windowState()));
       return handled;
     }
+    case QEvent::DevicePixelRatioChange:
+      // Qt 6: fired when Wayland/X11 buffer scale for this window changes.
+      // Without this, Gecko keeps the startup scale (often 1.0) and pages
+      // render half-size and blurry on HiDPI.
+      mWidget->OnScalePossiblyChanged();
+      return QWindow::event(aEvent);
     default:
       break;
   }
