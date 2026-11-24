@@ -287,7 +287,10 @@ void QtWindowBridge::keyReleaseEvent(QKeyEvent* aEvent) {
 void QtWindowBridge::mousePressEvent(QMouseEvent* aEvent) {
   // Activate only windows that should own chrome focus. Popups, Media PiP and
   // alerts must not steal activation (tab goes inactive, media pauses, etc.).
+  // raise() matters on KDE/Wayland: requestActivate alone often does not
+  // restack after a no-focus menu demoted the surface.
   if (mWidget && mWidget->ShouldAcceptActivate()) {
+    raise();
     requestActivate();
   }
   if (mWidget) {

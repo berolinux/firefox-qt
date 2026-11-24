@@ -112,11 +112,13 @@ class nsWindow final : public nsIWidget {
   // True when this window may become the active chrome window (not PiP/alert).
   bool ShouldAcceptActivate() const;
 
-  // One-shot raise+requestActivate. Only from Show/Hide of chrome popups
-  // or dialogs — never from focus/activation handlers (that loops on Wayland
-  // and freezes all input).
+  // One-shot raise+requestActivate. Only from Show/Hide/Enable/mouse —
+  // never from focus/activation handlers (that loops on Wayland).
   void ReclaimActivation();
   void ScheduleReclaimActivation();
+  void ScheduleReclaimActivationAfter(int aDelayMs);
+  // Fixed 0+100ms reclaim after popup/dialog lifecycle (not focus-driven).
+  void ScheduleChromeLifecycleReclaim();
   // True if aOther is a visible transient child of this window.
   bool HasVisibleTransientChild(const nsWindow* aOther) const;
   bool HasAnyVisibleTransientChild() const;

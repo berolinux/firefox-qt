@@ -484,14 +484,13 @@ void nsWindow::Show(bool aState) {
         mIsAlert || isNoFocusPopup ||
         (mAlwaysOnTop && mPiPType != PiPType::DocumentPiP);
     if (noStealFocus && mTransientParentWidget) {
-      // Single parent reclaim only — no retries, no suppress timer.
+      // Parent must stay in front of other apps while a no-focus menu is open.
       mTransientParentWidget->ReclaimActivation();
-      mTransientParentWidget->ScheduleReclaimActivation();
+      mTransientParentWidget->ScheduleChromeLifecycleReclaim();
     } else if (!IsPopup() && !mIsAlert && ShouldAcceptActivate()) {
-      // Dialog/top-level: raise this window only (not parent). Parent raise
-      // while a dialog maps fights focus and freezes input on KDE/Wayland.
+      // Dialog/top-level: raise this window only (not parent).
       ReclaimActivation();
-      ScheduleReclaimActivation();
+      ScheduleChromeLifecycleReclaim();
     }
 #ifdef ACCESSIBILITY
     if (a11y::ShouldA11yBeEnabled()) {
@@ -511,7 +510,8 @@ void nsWindow::Show(bool aState) {
         (isNoFocusPopup || mIsAlert || mWindowType == WindowType::Dialog);
     mQtWindow->hide();
     if (reclaimParentOnHide) {
-      mTransientParentWidget->ScheduleReclaimActivation();
+      mTransientParentWidget->ReclaimActivation();
+      mTransientParentWidget->ScheduleChromeLifecycleReclaim();
     }
   }
 }
@@ -593,6 +593,13 @@ void nsWindow::Enable(bool aState) {
     flags |= Qt::WindowTransparentForInput;
   }
   mQtWindow->setFlags(flags);
+  // After a modal, KWin often leaves the parent stacked behind other apps.
+  // One-shot reclaim is safe here (not in focus handlers): Enable(true) runs
+  // once when the modal exits, with a fresh user-interaction context.
+  if (aState && mIsVisible && ShouldAcceptActivate()) {
+    ReclaimActivation();
+    ScheduleReclaimActivation();
+  }
 }
 
 bool nsWindow::IsEnabled() const { return mEnabled; }
@@ -852,11 +859,16 @@ void nsWindow::ReclaimActivation() {
 }
 
 void nsWindow::ScheduleReclaimActivation() {
+  // Default: next event-loop turn only.
+  ScheduleReclaimActivationAfter(0);
+}
+
+void nsWindow::ScheduleReclaimActivationAfter(int aDelayMs) {
   if (!mQtWindow || mIsDestroyed || !ShouldAcceptActivate()) {
     return;
   }
   QPointer<QtWindowBridge> weak = mQtWindow.get();
-  QTimer::singleShot(0, mQtWindow.get(), [weak]() {
+  QTimer::singleShot(aDelayMs, mQtWindow.get(), [weak]() {
     if (!weak) {
       return;
     }
@@ -864,6 +876,13 @@ void nsWindow::ScheduleReclaimActivation() {
       w->ReclaimActivation();
     }
   });
+}
+
+void nsWindow::ScheduleChromeLifecycleReclaim() {
+  // Fixed short delays after popup/dialog map-unmap only. Not re-armed from
+  // focus events, so this cannot form the input-freeze loop.
+  ScheduleReclaimActivationAfter(0);
+  ScheduleReclaimActivationAfter(100);
 }
 
 bool nsWindow::HasVisibleTransientChild(const nsWindow* aOther) const {
