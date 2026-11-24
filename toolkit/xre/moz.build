@@ -217,6 +217,10 @@ FINAL_LIBRARY = "xul"
 
 if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
     DEFINES["USE_GLX_TEST"] = True
+
+# Qt uses the same gfxtest binary for `gfxtest vaapi`. Its moz.build leaves
+# out glxtest and the GTK libraries.
+if CONFIG["MOZ_WIDGET_TOOLKIT"] in ("gtk", "qt"):
     DIRS += ["gfxtest"]
 
 for var in (

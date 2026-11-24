@@ -204,6 +204,8 @@ def package_manifest_defines(
         defines.append("-DMOZ_LAYOUT_DEBUGGER=1")
     if toolkit == "gtk":
         defines.append("-DMOZ_GTK=1")
+    if toolkit == "qt":
+        defines.append("-DMOZ_WIDGET_QT=1")
     if system_nspr:
         defines.append("-DMOZ_SYSTEM_NSPR=1")
     if system_nss:

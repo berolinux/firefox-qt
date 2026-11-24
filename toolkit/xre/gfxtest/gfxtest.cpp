@@ -15,7 +15,9 @@
 #  include <gdk/gdk.h>
 #endif
 
+#ifdef MOZ_WIDGET_GTK
 int glxtest(bool aWayland, int aOutputFd);
+#endif
 
 #ifdef MOZ_ENABLE_VAAPI
 int vaapitest(const char* aDrmDevice);
@@ -37,7 +39,9 @@ static void PrintUsage() {
       "\n"
       "Commands:\n"
       "\n"
+#ifdef MOZ_WIDGET_GTK
       "  glx [-f fd] [-w]          probe OpenGL/EGL capabilities\n"
+#endif
 #ifdef MOZ_ENABLE_VAAPI
       "  vaapi -d <drm_device>     probe VA-API video decode/encode\n"
 #endif
@@ -50,6 +54,7 @@ static void PrintUsage() {
       "\n");
 }
 
+#ifdef MOZ_WIDGET_GTK
 static int RunGlx(int argc, char** argv) {
   struct option longOptions[] = {{"help", no_argument, nullptr, 'h'},
                                  {"fd", required_argument, nullptr, 'f'},
@@ -82,6 +87,7 @@ static int RunGlx(int argc, char** argv) {
   }
   return glxtest(wayland, outputFd);
 }
+#endif
 
 #ifdef MOZ_ENABLE_VAAPI
 static int RunVaapi(int argc, char** argv) {
@@ -187,9 +193,11 @@ int main(int argc, char** argv) {
   argc--;
   argv++;
   const char* cmd = argv[0];
+#ifdef MOZ_WIDGET_GTK
   if (!strcmp(cmd, "glx")) {
     return RunGlx(argc, argv);
   }
+#endif
 #ifdef MOZ_ENABLE_VAAPI
   if (!strcmp(cmd, "vaapi")) {
     return RunVaapi(argc, argv);
