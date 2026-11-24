@@ -6,7 +6,7 @@
 #define nsQtShellService_h_
 
 #include "nsIUnixShellService.h"
-#include "nsToolkitShellService.h"
+#include "nsShellService.h"
 #include "nsString.h"
 
 /**
@@ -17,12 +17,12 @@
  * - Wallpaper: plasma-apply-wallpaperimage when available
  * No GIO/GTK.
  */
-class nsQtShellService final : public nsIUnixShellService,
-                               public nsToolkitShellService {
+class nsQtShellService final : public nsShellService,
+                               public nsIUnixShellService {
  public:
   nsQtShellService() = default;
 
-  NS_DECL_ISUPPORTS
+  NS_DECL_ISUPPORTS_INHERITED
   NS_DECL_NSISHELLSERVICE
   NS_DECL_NSIUNIXSHELLSERVICE
 
@@ -42,8 +42,6 @@ class nsQtShellService final : public nsIUnixShellService,
   static bool ResolveDesktopId(nsACString& aDesktopId);
   static bool IsPlasmaSession();
   static bool HasPlasmaWallpaperTool();
-  static nsresult WriteElementImageToPng(mozilla::dom::Element* aElement,
-                                         const nsACString& aPath);
   bool DesktopIdMatchesHandler(const nsACString& aHandlerId) const;
 };
 

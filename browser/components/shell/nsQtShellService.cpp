@@ -4,17 +4,11 @@
 
 #include "nsQtShellService.h"
 
-#include "imgIContainer.h"
-#include "imgIRequest.h"
-#include "mozilla/dom/Element.h"
-#include "mozilla/gfx/2D.h"
 #include "nsCOMPtr.h"
 #include "nsComponentManagerUtils.h"
-#include "nsIImageLoadingContent.h"
+#include "nsIFile.h"
 #include "nsIPrefBranch.h"
 #include "nsIPrefService.h"
-#include "mozilla/Components.h"
-#include "nsIStringBundle.h"
 #include "nsReadableUtils.h"
 #include "nsServiceManagerUtils.h"
 #include "nsShellService.h"
@@ -32,7 +26,6 @@
 #pragma GCC visibility push(default)
 #include <QColor>
 #include <QGuiApplication>
-#include <QImage>
 #include <QPalette>
 #include <QStandardPaths>
 #include <QString>
@@ -43,12 +36,8 @@
 // From glibc / POSIX: environ for posix_spawnp.
 extern char** environ;
 
-using mozilla::gfx::DataSourceSurface;
-using mozilla::gfx::SourceSurface;
-using mozilla::gfx::SurfaceFormat;
-
-NS_IMPL_ISUPPORTS(nsQtShellService, nsIUnixShellService, nsIShellService,
-                  nsIToolkitShellService)
+NS_IMPL_ISUPPORTS_INHERITED(nsQtShellService, nsShellService,
+                            nsIUnixShellService, nsIShellService)
 
 // Last solid color applied via SetDesktopBackgroundColor (Plasma has no
 // stable public API to read wallpaper Color back).
@@ -247,6 +236,12 @@ nsQtShellService::IsDefaultBrowser(bool /*aForAllTypes*/,
 }
 
 NS_IMETHODIMP
+nsQtShellService::IsDefaultBrowserAsync(bool aForAllTypes, JSContext* aContext,
+                                        mozilla::dom::Promise** _retval) {
+  return nsShellService::IsDefaultBrowserAsync(aForAllTypes, aContext, _retval);
+}
+
+NS_IMETHODIMP
 nsQtShellService::SetDefaultBrowser(bool aForAllUsers) {
 #ifdef DEBUG
   if (aForAllUsers) {
@@ -325,142 +320,18 @@ nsQtShellService::GetCanSetDesktopBackground(bool* aResult) {
   return NS_OK;
 }
 
-/* static */
-nsresult nsQtShellService::WriteElementImageToPng(
-    mozilla::dom::Element* aElement, const nsACString& aPath) {
-  nsCOMPtr<nsIImageLoadingContent> imageContent = do_QueryInterface(aElement);
-  if (!imageContent) {
-    return NS_ERROR_FAILURE;
-  }
-
-  nsCOMPtr<imgIRequest> request;
-  imageContent->GetRequest(nsIImageLoadingContent::CURRENT_REQUEST,
-                           getter_AddRefs(request));
-  if (!request) {
-    return NS_ERROR_FAILURE;
-  }
-  nsCOMPtr<imgIContainer> container;
-  request->GetImage(getter_AddRefs(container));
-  if (!container) {
-    return NS_ERROR_FAILURE;
-  }
-
-  const uint32_t flags =
-      imgIContainer::FLAG_SYNC_DECODE | imgIContainer::FLAG_ASYNC_NOTIFY;
-  RefPtr<SourceSurface> surface =
-      container->GetFrame(imgIContainer::FRAME_CURRENT, flags);
-  if (!surface) {
-    surface =
-        container->GetFrame(imgIContainer::FRAME_CURRENT, imgIContainer::FLAG_NONE);
-  }
-  if (!surface) {
-    return NS_ERROR_FAILURE;
-  }
-
-  RefPtr<DataSourceSurface> data = surface->GetDataSurface();
-  if (!data) {
-    return NS_ERROR_FAILURE;
-  }
-
-  DataSourceSurface::ScopedMap map(data, DataSourceSurface::READ);
-  if (!map.IsMapped()) {
-    return NS_ERROR_FAILURE;
-  }
-
-  const int width = data->GetSize().width;
-  const int height = data->GetSize().height;
-  if (width <= 0 || height <= 0) {
-    return NS_ERROR_FAILURE;
-  }
-
-  // Convert to RGBA8888 for QImage.
-  QImage image(width, height, QImage::Format_RGBA8888);
-  if (image.isNull()) {
-    return NS_ERROR_OUT_OF_MEMORY;
-  }
-
-  const SurfaceFormat fmt = data->GetFormat();
-  const uint8_t* src = map.GetData();
-  const int32_t srcStride = map.GetStride();
-
-  for (int y = 0; y < height; ++y) {
-    const uint8_t* row = src + y * srcStride;
-    uint8_t* dst = image.scanLine(y);
-    for (int x = 0; x < width; ++x) {
-      uint8_t r = 0, g = 0, b = 0, a = 255;
-      switch (fmt) {
-        case SurfaceFormat::B8G8R8A8:
-        case SurfaceFormat::B8G8R8X8: {
-          b = row[x * 4 + 0];
-          g = row[x * 4 + 1];
-          r = row[x * 4 + 2];
-          a = row[x * 4 + 3];
-          break;
-        }
-        case SurfaceFormat::R8G8B8A8:
-        case SurfaceFormat::R8G8B8X8: {
-          r = row[x * 4 + 0];
-          g = row[x * 4 + 1];
-          b = row[x * 4 + 2];
-          a = row[x * 4 + 3];
-          break;
-        }
-        default: {
-          // Best-effort BGRA (covers OS_RGBA / A8R8G8B8_UINT32 on LE).
-          b = row[x * 4 + 0];
-          g = row[x * 4 + 1];
-          r = row[x * 4 + 2];
-          a = row[x * 4 + 3];
-          break;
-        }
-      }
-      dst[x * 4 + 0] = r;
-      dst[x * 4 + 1] = g;
-      dst[x * 4 + 2] = b;
-      dst[x * 4 + 3] = a;
-    }
-  }
-
-  if (!image.save(QString::fromUtf8(PromiseFlatCString(aPath).get()), "PNG")) {
-    return NS_ERROR_FAILURE;
-  }
-  return NS_OK;
-}
-
 NS_IMETHODIMP
-nsQtShellService::SetDesktopBackground(mozilla::dom::Element* aElement,
-                                       int32_t aPosition,
-                                       const nsACString& /*aImageName*/) {
+nsQtShellService::SetDesktopBackgroundFile(nsIFile* aFile, int32_t aPosition) {
   if (!IsPlasmaSession() || !HasPlasmaWallpaperTool()) {
     return NS_ERROR_NOT_AVAILABLE;
   }
-
-  // Write wallpaper under $HOME (same pattern as GNOME shell service).
-  const char* home = PR_GetEnv("HOME");
-  if (!home || !*home) {
+  if (!aFile) {
     return NS_ERROR_FAILURE;
   }
 
-  nsAutoString brandName;
-  if (nsCOMPtr<nsIStringBundleService> bundleService =
-          mozilla::components::StringBundle::Service()) {
-    nsCOMPtr<nsIStringBundle> brandBundle;
-    if (NS_SUCCEEDED(bundleService->CreateBundle(
-            SHELL_BRAND_PROPERTIES_URI, getter_AddRefs(brandBundle))) &&
-        brandBundle) {
-      brandBundle->GetStringFromName("brandShortName", brandName);
-    }
-  }
-  if (brandName.IsEmpty()) {
-    brandName.AssignLiteral("Firefox");
-  }
-
-  nsAutoCString filePath(home);
-  filePath.Append('/');
-  filePath.Append(NS_ConvertUTF16toUTF8(brandName));
-  filePath.AppendLiteral("_wallpaper.png");
-
-  nsresult rv = WriteElementImageToPng(aElement, filePath);
+  // Firefox 160 writes the image itself and passes the file here.
+  nsAutoCString filePath;
+  nsresult rv = aFile->GetNativePath(filePath);
   NS_ENSURE_SUCCESS(rv, rv);
 
   // Map nsIShellService position flags to plasma-apply-wallpaperimage fill modes.
