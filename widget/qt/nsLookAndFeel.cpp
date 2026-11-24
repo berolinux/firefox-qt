@@ -317,6 +317,37 @@ nsresult nsLookAndFeel::NativeGetColor(ColorID aID, ColorScheme aScheme,
     aResult = GetStandinForNativeColor(aID, aScheme);
     return NS_OK;
   }
+
+  const QPalette pal = QApplication::palette();
+  auto color = [&](QPalette::ColorRole role,
+                   QPalette::ColorGroup group = QPalette::Active) {
+    return QColorToNscolor(pal.color(group, role));
+  };
+
+  // Tooltips: always pair with the *system* tip palette (Breeze/Oxygen paint
+  // PE_PanelTipLabel from QPalette, not document color-scheme). Light-scheme
+  // standin InfoText (black) over a dark system tip is unreadable black-on-
+  // black; resolve both colors together before the scheme mismatch early-out.
+  if (aID == ColorID::Infobackground || aID == ColorID::Infotext) {
+    nscolor bg = color(QPalette::ToolTipBase);
+    nscolor fg = color(QPalette::ToolTipText);
+    auto lum = [](nscolor c) {
+      return (2 * NS_GET_R(c) + 3 * NS_GET_G(c) + NS_GET_B(c)) / 6;
+    };
+    if (std::abs(int(lum(bg)) - int(lum(fg))) < 80) {
+      // Pathological palette (or monochrome tip roles): force readable pair.
+      if (SystemIsDark() || lum(bg) < 128) {
+        bg = NS_RGB(0x2b, 0x2a, 0x33);
+        fg = NS_RGB(0xfb, 0xfb, 0xfe);
+      } else {
+        bg = NS_RGB(0xf9, 0xf9, 0xfb);
+        fg = NS_RGB(0x15, 0x15, 0x1a);
+      }
+    }
+    aResult = (aID == ColorID::Infobackground) ? bg : fg;
+    return NS_OK;
+  }
+
   // Qt only exposes the active system palette. For the opposite scheme, fall
   // back to standins so light chrome is still usable on a dark desktop and
   // vice versa.
@@ -324,12 +355,6 @@ nsresult nsLookAndFeel::NativeGetColor(ColorID aID, ColorScheme aScheme,
     aResult = GetStandinForNativeColor(aID, aScheme);
     return NS_OK;
   }
-
-  const QPalette pal = QApplication::palette();
-  auto color = [&](QPalette::ColorRole role,
-                   QPalette::ColorGroup group = QPalette::Active) {
-    return QColorToNscolor(pal.color(group, role));
-  };
 
   // Slightly adjust a color toward another for hover/active variants when the
   // style does not expose a dedicated role.
@@ -356,8 +381,6 @@ nsresult nsLookAndFeel::NativeGetColor(ColorID aID, ColorScheme aScheme,
   const nscolor dark = color(QPalette::Dark);
   const nscolor shadow = color(QPalette::Shadow);
   const nscolor altBase = color(QPalette::AlternateBase);
-  const nscolor tooltipBase = color(QPalette::ToolTipBase);
-  const nscolor tooltipText = color(QPalette::ToolTipText);
   const nscolor link = color(QPalette::Link);
   const nscolor linkVisited = color(QPalette::LinkVisited);
   nscolor accent = color(QPalette::Accent);
@@ -536,23 +559,7 @@ nsresult nsLookAndFeel::NativeGetColor(ColorID aID, ColorScheme aScheme,
       aResult = disabledText;
       return NS_OK;
 
-    case ColorID::Infobackground:
-    case ColorID::Infotext: {
-      // Ensure readable contrast. Low-contrast ToolTipBase/Text becomes
-      // white-on-white (or black-on-black) over video and bright surfaces.
-      nscolor bg = tooltipBase;
-      nscolor fg = tooltipText;
-      const int baseL =
-          QColor(NS_GET_R(bg), NS_GET_G(bg), NS_GET_B(bg)).lightness();
-      const int textL =
-          QColor(NS_GET_R(fg), NS_GET_G(fg), NS_GET_B(fg)).lightness();
-      if (std::abs(baseL - textL) < 60) {
-        bg = NS_RGB(0x2a, 0x2a, 0x2e);
-        fg = NS_RGB(0xfb, 0xfb, 0xfe);
-      }
-      aResult = (aID == ColorID::Infobackground) ? bg : fg;
-      return NS_OK;
-    }
+    // Infobackground/Infotext handled above (system tip pair).
 
     case ColorID::Menu:
       aResult = window;

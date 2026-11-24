@@ -44,6 +44,13 @@ static bool QtHardwarePresentAllowed() {
   return !PR_GetEnv("MOZ_QT_SOFTWARE_PRESENT");
 }
 
+// Exclusive EGL works for one opaque top-level (main 3pane) but a second
+// wl_egl_window (compose, …) often maps on KWin without ever presenting —
+// Reply/New Message appear to do nothing. Once any window claims exclusive
+// present, further top-levels stay on software present for the process
+// lifetime (do not re-enable after Abandon — that reintroduces the bug).
+static bool sExclusivePresentClaimed = false;
+
 #ifdef ACCESSIBILITY
 #  include "mozilla/a11y/LocalAccessible.h"
 #  include "mozilla/a11y/Platform.h"
@@ -210,9 +217,27 @@ void nsWindow::ApplyQtGeometryFromBounds() {
     return;
   }
 
-  const int x = int(std::lround(mBounds.x / dpr));
-  const int y = int(std::lround(mBounds.y / dpr));
-  mQtWindow->setGeometry(x, y, w, h);
+  // Wayland: position is compositor-owned. setGeometry(x,y,w,h) with global
+  // coords is wrong and can leave dialogs unmappable; resize only.
+  if (IsWaylandPlatform()) {
+    mQtWindow->resize(w, h);
+  } else {
+    const int x = int(std::lround(mBounds.x / dpr));
+    const int y = int(std::lround(mBounds.y / dpr));
+    mQtWindow->setGeometry(x, y, w, h);
+  }
+
+  // Dialogs: enforce a usable minimum only. Never pin maximum to the current
+  // size — that locked auth prompts at create-time 1×1. Gecko still sizes the
+  // content; the shell may grow slightly which is fine for commonDialog.
+  if (mWindowType == WindowType::Dialog) {
+    constexpr int kMinW = 320;
+    constexpr int kMinH = 180;
+    mQtWindow->setMinimumSize(QSize(kMinW, kMinH));
+    if (w < kMinW || h < kMinH) {
+      mQtWindow->resize(std::max(w, kMinW), std::max(h, kMinH));
+    }
+  }
 }
 
 nsresult nsWindow::Create(nsIWidget* aParent, const LayoutDeviceIntRect& aRect,
@@ -226,15 +251,21 @@ nsresult nsWindow::Create(nsIWidget* aParent, const LayoutDeviceIntRect& aRect,
   mIsDragPopup = aInitData.mIsDragPopup;
   mResizable = aInitData.mResizable;
   mIsAnimationSuppressed = aInitData.mIsAnimationSuppressed;
-  // Exclusive EGL for opaque non-popups. Popups/transparent keep SW present
-  // (rounded alpha panels need QBackingStore). Media PiP is short-lived and
-  // streams YUV; SW present avoids SWGL CompositeYUV UAF on unpip when the
-  // exclusive-EGL path races compositor teardown. Escape: MOZ_QT_SOFTWARE_PRESENT=1.
-  mUseHardwarePresent =
+  // Exclusive EGL for the *first* opaque top-level only. Popups/transparent
+  // keep SW present (rounded alpha panels need QBackingStore). Dialogs use SW
+  // (modal auth prompts). A second top-level with exclusive EGL (compose /
+  // New Message / standalone msg) maps but never presents on KWin/Wayland —
+  // Reply/Forward/New look like no-ops even though OpenWindow succeeds.
+  // Escape hatch: MOZ_QT_SOFTWARE_PRESENT=1 forces SW for everything.
+  const bool wantHardware =
       QtHardwarePresentAllowed() &&
-      aInitData.mWindowType != WindowType::Popup && !mIsDragPopup &&
+      aInitData.mWindowType == WindowType::TopLevel && !mIsDragPopup &&
       aInitData.mTransparencyMode == TransparencyMode::Opaque &&
       mPiPType != PiPType::MediaPiP;
+  mUseHardwarePresent = wantHardware && !sExclusivePresentClaimed;
+  if (mUseHardwarePresent) {
+    sExclusivePresentClaimed = true;
+  }
 
   mQtWindow = mozilla::MakeUnique<QtWindowBridge>(this);
   mQtWindow->setTitle(QStringLiteral("Mozilla Firefox"));
@@ -272,7 +303,10 @@ nsresult nsWindow::Create(nsIWidget* aParent, const LayoutDeviceIntRect& aRect,
     }
     mQtWindow->setFlags(flags);
   } else if (aInitData.mWindowType == WindowType::Dialog) {
-    Qt::WindowFlags flags = Qt::Dialog;
+    // Prefer Window over Dialog on Wayland: some compositors mishandle
+    // Qt::Dialog + modal + transient parent (invisible surface, title only).
+    Qt::WindowFlags flags =
+        IsWaylandPlatform() ? Qt::Window : Qt::Dialog;
     // Media Picture-in-Picture: utility-style always-on-top chrome window.
     if (mPiPType == PiPType::MediaPiP || mAlwaysOnTop) {
       flags |= Qt::WindowStaysOnTopHint | Qt::Tool;
@@ -391,6 +425,10 @@ void nsWindow::Destroy() {
   }
   mIsDestroyed = true;
 
+  // Leave sExclusivePresentClaimed set so a later compose window cannot
+  // re-take exclusive EGL after the main window is destroyed/recreated.
+  mUseHardwarePresent = false;
+
 #ifdef ACCESSIBILITY
   mRootAccessible = nullptr;
 #endif
@@ -455,6 +493,27 @@ void nsWindow::Show(bool aState) {
         mBounds.SizeTo(mGeckoPopupSize);
       }
       ApplyQtGeometryFromBounds();
+    } else if (mWindowType == WindowType::Dialog) {
+      // Auth / commonDialog: never map at 0×0 (invisible but still modal on
+      // KDE/Wayland). Prefer Gecko size; fall back to a sane minimum so the
+      // surface is visible until SizeShellTo arrives.
+      if (mBounds.width < 50 || mBounds.height < 50) {
+        const double dpr = DevicePixelRatio();
+        mBounds.width = std::max(mBounds.width, int32_t(std::lround(400 * dpr)));
+        mBounds.height =
+            std::max(mBounds.height, int32_t(std::lround(220 * dpr)));
+      }
+      {
+        constexpr int kUnconstrained = 16777215;
+        mQtWindow->setMinimumSize(QSize(320, 180));
+        mQtWindow->setMaximumSize(QSize(kUnconstrained, kUnconstrained));
+      }
+      ApplyQtGeometryFromBounds();
+      // Create the platform surface before show so expose can flush a
+      // placeholder plate (see QtWindowBridge::exposeEvent).
+      if (!mQtWindow->handle()) {
+        mQtWindow->create();
+      }
     }
     // Always push the current client size to the compositor before mapping.
     // SWGL fails with "no dt" when InitialClientSize was still 0x0.
@@ -466,6 +525,26 @@ void nsWindow::Show(bool aState) {
       mQtWindow->showFullScreen();
     } else {
       mQtWindow->show();
+    }
+    // Dialogs must surface above the parent. Do not ScheduleChromeLifecycle
+    // reclaim on the dialog itself — delayed requestActivate after the modal
+    // closes races destruction and has crashed on dialog dismiss.
+    if (mWindowType == WindowType::Dialog && !mIsAlert) {
+      mQtWindow->raise();
+      mQtWindow->requestActivate();
+      mQtWindow->requestUpdate();
+      Invalidate(LayoutDeviceIntRect(0, 0, mBounds.width, mBounds.height));
+    } else if (mWindowType == WindowType::TopLevel && !mIsAlert &&
+               !mUseHardwarePresent) {
+      // Secondary top-levels (compose) use SW present: ensure platform surface
+      // + a first paint so they are not blank/invisible next to the main window.
+      if (!mQtWindow->handle()) {
+        mQtWindow->create();
+      }
+      mQtWindow->raise();
+      mQtWindow->requestActivate();
+      mQtWindow->requestUpdate();
+      Invalidate(LayoutDeviceIntRect(0, 0, mBounds.width, mBounds.height));
     }
     // Wayland often only exposes wl_surface after map; refresh EGL native.
     if (mUseHardwarePresent) {
@@ -484,9 +563,13 @@ void nsWindow::Show(bool aState) {
         mIsAlert || isNoFocusPopup ||
         (mAlwaysOnTop && mPiPType != PiPType::DocumentPiP);
     if (noStealFocus && mTransientParentWidget) {
-      // Parent must stay in front of other apps while a no-focus menu is open.
-      mTransientParentWidget->ReclaimActivation();
-      mTransientParentWidget->ScheduleChromeLifecycleReclaim();
+      // Tooltips fire constantly over the message list. Raising/activating the
+      // parent on every tip map causes 1px Wayland configure thrash (rows
+      // appear to jitter). Menus/panels still need the parent reclaim.
+      if (GetPopupType() != PopupType::Tooltip) {
+        mTransientParentWidget->ReclaimActivation();
+        mTransientParentWidget->ScheduleChromeLifecycleReclaim();
+      }
     } else if (!IsPopup() && !mIsAlert && ShouldAcceptActivate()) {
       // Dialog/top-level: raise this window only (not parent).
       ReclaimActivation();
@@ -505,13 +588,18 @@ void nsWindow::Show(bool aState) {
     const bool isNoFocusPopup =
         IsPopup() && mQtWindow &&
         (mQtWindow->flags() & Qt::WindowDoesNotAcceptFocus);
+    // Skip tooltips — same thrash as Show (message-list hover tips).
     const bool reclaimParentOnHide =
-        mTransientParentWidget &&
+        mTransientParentWidget && GetPopupType() != PopupType::Tooltip &&
         (isNoFocusPopup || mIsAlert || mWindowType == WindowType::Dialog);
     mQtWindow->hide();
-    if (reclaimParentOnHide) {
+    if (reclaimParentOnHide && mTransientParentWidget &&
+        mTransientParentWidget->mQtWindow) {
+      // Parent only, and only if still alive. Avoid delayed work on this
+      // dialog's QWindow (being torn down by modal close).
       mTransientParentWidget->ReclaimActivation();
-      mTransientParentWidget->ScheduleChromeLifecycleReclaim();
+      // Single deferred parent raise — not multi-shot on this object.
+      mTransientParentWidget->ScheduleReclaimActivation();
     }
   }
 }
@@ -580,25 +668,28 @@ void nsWindow::Enable(bool aState) {
   if (!mQtWindow) {
     return;
   }
-  // EnableParent(false) during AppWindow::ShowModal sets
-  // WindowTransparentForInput so the parent ignores clicks while a modal
-  // (e.g. TB system-integration after account Finish) is up.
-  // The old code only ORed the flag on and never cleared it on Enable(true),
-  // so after the modal closed the main window stayed permanently
-  // input-transparent — no clicks, not even the close button.
-  Qt::WindowFlags flags = mQtWindow->flags();
+  // AppWindow::ShowModal uses EnableParent(false/true). The disable path must
+  // make the parent ignore pointer events; the enable path MUST restore them.
+  // Use setFlag() (not setFlags()): setFlags() on a mapped QWindow can recreate
+  // the platform window and fail to clear WindowTransparentForInput on Wayland,
+  // leaving the main window permanently dead (no clicks, no close button) after
+  // the first modal — classic TB "Finish account setup" failure mode.
+  mQtWindow->setFlag(Qt::WindowTransparentForInput, !aState);
   if (aState) {
-    flags &= ~Qt::WindowTransparentForInput;
-  } else {
-    flags |= Qt::WindowTransparentForInput;
-  }
-  mQtWindow->setFlags(flags);
-  // After a modal, KWin often leaves the parent stacked behind other apps.
-  // One-shot reclaim is safe here (not in focus handlers): Enable(true) runs
-  // once when the modal exits, with a fresh user-interaction context.
-  if (aState && mIsVisible && ShouldAcceptActivate()) {
-    ReclaimActivation();
-    ScheduleReclaimActivation();
+    // Also re-apply the normal input region so a prior fully-transparent mask
+    // cannot keep the surface non-interactive.
+    if (!mInputRegion.mFullyTransparent) {
+      ApplyInputRegionMask();
+    } else {
+      // Explicit clear even when Gecko still thinks the region is transparent:
+      // after a modal, a stale flag is worse than a wrong mask.
+      mQtWindow->setFlag(Qt::WindowTransparentForInput, false);
+    }
+    // One-shot restack after modal (safe: not driven from focus handlers).
+    if (mIsVisible && ShouldAcceptActivate()) {
+      ReclaimActivation();
+      ScheduleReclaimActivation();
+    }
   }
 }
 
@@ -854,8 +945,40 @@ void nsWindow::ReclaimActivation() {
   if (!mQtWindow || mIsDestroyed || !mIsVisible || !ShouldAcceptActivate()) {
     return;
   }
+  // Never pull activation off compose / prefs / another messenger window.
+  // Reply/Forward open a new TopLevel right after a click on 3pane; the
+  // post-click demotion reclaim used to requestActivate(this) and bury
+  // compose (hover-only toolbar, “Reply does nothing”).
+  if (QWindow* focused = QGuiApplication::focusWindow()) {
+    if (auto* bridge = qobject_cast<QtWindowBridge*>(focused)) {
+      if (nsWindow* w = bridge->GetWidget()) {
+        if (w != this && w->ShouldAcceptActivate()) {
+          return;
+        }
+      }
+    }
+  }
+  for (QWindow* win : QGuiApplication::allWindows()) {
+    if (win == mQtWindow.get() || !win->isVisible() || !win->isActive()) {
+      continue;
+    }
+    auto* bridge = qobject_cast<QtWindowBridge*>(win);
+    if (!bridge) {
+      continue;
+    }
+    if (nsWindow* w = bridge->GetWidget()) {
+      if (w != this && w->ShouldAcceptActivate()) {
+        return;
+      }
+    }
+  }
+  // Always raise for stacking. Only requestActivate when inactive — calling
+  // requestActivate while already active can race KWin xdg-activation and
+  // demote the surface after a few clicks (TB folder tree).
   mQtWindow->raise();
-  mQtWindow->requestActivate();
+  if (!mQtWindow->isActive()) {
+    mQtWindow->requestActivate();
+  }
 }
 
 void nsWindow::ScheduleReclaimActivation() {
@@ -885,6 +1008,16 @@ void nsWindow::ScheduleChromeLifecycleReclaim() {
   ScheduleReclaimActivationAfter(100);
 }
 
+void nsWindow::NoteUserInput() {
+  mLastUserInputTime = mozilla::TimeStamp::Now();
+  mPostClickReclaimScheduled = false;
+}
+
+bool nsWindow::RecentlyHadUserInput(mozilla::TimeDuration aWithin) const {
+  return !mLastUserInputTime.IsNull() &&
+         (mozilla::TimeStamp::Now() - mLastUserInputTime) < aWithin;
+}
+
 bool nsWindow::HasVisibleTransientChild(const nsWindow* aOther) const {
   return aOther && aOther->mTransientParentWidget == this && aOther->mIsVisible;
 }
@@ -897,6 +1030,37 @@ bool nsWindow::HasAnyVisibleTransientChild() const {
     }
     if (nsWindow* w = bridge->GetWidget()) {
       if (HasVisibleTransientChild(w)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+bool nsWindow::HasVisibleNoFocusPopupChild() const {
+  for (QWindow* win : QGuiApplication::allWindows()) {
+    auto* bridge = qobject_cast<QtWindowBridge*>(win);
+    if (!bridge || !win->isVisible()) {
+      continue;
+    }
+    if (nsWindow* w = bridge->GetWidget()) {
+      if (w->IsPopup() && w->mTransientParentWidget == this && w->mQtWindow &&
+          (w->mQtWindow->flags() & Qt::WindowDoesNotAcceptFocus)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+bool nsWindow::OtherActivatableGeckoWindowVisible() const {
+  for (QWindow* win : QGuiApplication::allWindows()) {
+    auto* bridge = qobject_cast<QtWindowBridge*>(win);
+    if (!bridge || !win->isVisible()) {
+      continue;
+    }
+    if (nsWindow* w = bridge->GetWidget()) {
+      if (w != this && w->ShouldAcceptActivate()) {
         return true;
       }
     }
@@ -943,7 +1107,14 @@ void nsWindow::ApplyWindowDecoration(BorderStyle aStyle) {
 
   mQtWindow->setFlags(flags);
 
-  if (!resizable && mBounds.width > 0 && mBounds.height > 0) {
+  constexpr int kUnconstrained = 16777215;
+  if (!resizable && mWindowType == WindowType::Dialog) {
+    // Do NOT lock min=max here from possibly-placeholder create sizes.
+    // ApplyQtGeometryFromBounds updates constraints once the real size is
+    // known (see comment there). Leaving max unconstrained avoids 1×1 lock.
+    mQtWindow->setMinimumSize(QSize(0, 0));
+    mQtWindow->setMaximumSize(QSize(kUnconstrained, kUnconstrained));
+  } else if (!resizable && mBounds.width > 0 && mBounds.height > 0) {
     const double dpr = DevicePixelRatio();
     const int w = std::max(1, int(std::lround(mBounds.width / dpr)));
     const int h = std::max(1, int(std::lround(mBounds.height / dpr)));
@@ -952,7 +1123,6 @@ void nsWindow::ApplyWindowDecoration(BorderStyle aStyle) {
   } else if (resizable) {
     // Restore unconstrained max when decorations allow resize; Gecko may
     // re-apply SetSizeConstraints afterward.
-    constexpr int kUnconstrained = 16777215;
     if (mSizeConstraints.mMinSize.width > 0 ||
         mSizeConstraints.mMinSize.height > 0) {
       SetSizeConstraints(mSizeConstraints);
@@ -980,7 +1150,15 @@ void nsWindow::SetModal(bool aModal) {
   if (!mQtWindow) {
     return;
   }
-  mQtWindow->setModality(aModal ? Qt::ApplicationModal : Qt::NonModal);
+  // Prefer WindowModal over ApplicationModal: if a dialog fails to map on
+  // Wayland (size 0 / off-screen), ApplicationModal can block the whole app
+  // with no visible dialog. WindowModal still blocks the parent transient
+  // group, which is what XUL modals need.
+  if (aModal) {
+    mQtWindow->setModality(Qt::WindowModal);
+  } else {
+    mQtWindow->setModality(Qt::NonModal);
+  }
 }
 
 void nsWindow::LockAspectRatio(bool aShouldLock) {
@@ -1635,6 +1813,7 @@ void nsWindow::AbandonHardwarePresent() {
     return;
   }
   mUseHardwarePresent = false;
+  // Keep sExclusivePresentClaimed: secondaries must stay on SW present.
   DestroyWaylandEglWindow();
   if (mQtWindow) {
     mQtWindow->AbandonHardwarePresent();
@@ -1762,6 +1941,7 @@ void nsWindow::OnScalePossiblyChanged() {
 
 void nsWindow::OnExpose() {
   // Catch late Wayland scale after map when no resize was delivered.
+  // (Cheap when DPR is unchanged — early-outs inside OnScalePossiblyChanged.)
   OnScalePossiblyChanged();
 
   // Hardware present: WebRender composites on vsync via EGL SwapBuffers.
@@ -1826,6 +2006,20 @@ void nsWindow::OnResize(int aWidth, int aHeight) {
     h = std::max(1, int(std::lround(double(dipH) * dpr)));
   }
 
+  // Deadband: absorb ±1 device-pixel size flips that keep the same DIP size.
+  // KWin/Qt occasionally reconfigure with a 1px device oscillation; that
+  // invalidates the thread-pane ResizeObserver and makes list rows bounce.
+  if (!scaleChanged && mBounds.width > 0 && mBounds.height > 0) {
+    if (std::abs(w - mBounds.width) <= 1 &&
+        dipsFromDev(w) == dipsFromDev(mBounds.width)) {
+      w = mBounds.width;
+    }
+    if (std::abs(h - mBounds.height) <= 1 &&
+        dipsFromDev(h) == dipsFromDev(mBounds.height)) {
+      h = mBounds.height;
+    }
+  }
+
   const LayoutDeviceIntRect oldBounds = mBounds;
 
   if (IsPopup()) {
@@ -1857,8 +2051,17 @@ void nsWindow::OnResize(int aWidth, int aHeight) {
       if (!scaleChanged && curDipX == pos.x() && curDipY == pos.y()) {
         mBounds.MoveTo(oldBounds.TopLeft());
       } else {
-        mBounds.MoveTo(int(std::lround(pos.x() * dpr)),
-                       int(std::lround(pos.y() * dpr)));
+        const int newX = int(std::lround(pos.x() * dpr));
+        const int newY = int(std::lround(pos.y() * dpr));
+        // Same 1px deadband for position — avoids content shift when the
+        // compositor reports floating-point global coords that round either
+        // side of a boundary.
+        if (!scaleChanged && std::abs(newX - oldBounds.x) <= 1 &&
+            std::abs(newY - oldBounds.y) <= 1) {
+          mBounds.MoveTo(oldBounds.TopLeft());
+        } else {
+          mBounds.MoveTo(newX, newY);
+        }
       }
     }
   }
@@ -1951,6 +2154,11 @@ void nsWindow::OnMove(int aX, int aY) {
     pos = LayoutDeviceIntPoint(int(std::lround(aX * dpr)),
                                int(std::lround(aY * dpr)));
   }
+  // Ignore 1px position noise (same deadband as OnResize) so the message
+  // list is not reflowed when the compositor re-reports the same place.
+  if (std::abs(pos.x - mBounds.x) <= 1 && std::abs(pos.y - mBounds.y) <= 1) {
+    return;
+  }
   mBounds.MoveTo(pos);
   if (mWidgetListener) {
     mWidgetListener->WindowMoved(this, pos,
@@ -1973,32 +2181,29 @@ void nsWindow::OnFocus(bool aFocus) {
 
   if (!aFocus) {
     // Focus moved to one of our popups — do not deactivate the browser.
-    // Important: only skip Gecko deactivation. Never raise/requestActivate
-    // from here: on Wayland focusWindow() is often null and reclaim loops
-    // forever, freezing all input (TB after account-hub Finish).
     if (QWindow* focused = QGuiApplication::focusWindow()) {
       if (auto* bridge = qobject_cast<QtWindowBridge*>(focused)) {
         if (nsWindow* w = bridge->GetWidget()) {
           if (w->IsPopup() && w->mTransientParentWidget == this) {
             return;
           }
-          // Child dialog owns focus; leave parent Gecko-active state alone
-          // for a11y/chrome styling only when it is a popup (above). Dialogs
-          // should deactivate the parent normally.
-        }
-      }
-    } else if (HasAnyVisibleTransientChild()) {
-      // No-focus popup visible (WindowDoesNotAcceptFocus): keep chrome active.
-      for (QWindow* win : QGuiApplication::allWindows()) {
-        auto* bridge = qobject_cast<QtWindowBridge*>(win);
-        if (!bridge || !win->isVisible()) {
-          continue;
-        }
-        if (nsWindow* w = bridge->GetWidget()) {
-          if (w->IsPopup() && w->mTransientParentWidget == this) {
-            return;
+          // Focus moved to compose / another messenger window — yield.
+          if (w != this && w->ShouldAcceptActivate()) {
+            // Fall through to DispatchActivateEvent(false).
+          } else if (w != this && w->IsPopup()) {
+            // Unrelated popup; still check no-focus handling below.
           }
         }
+      }
+    } else {
+      // No focusWindow: no-focus popup, or Wayland transient focus glitch
+      // right after a click. Keep Gecko chrome active briefly so UI does not
+      // go :-moz-window-inactive mid-click — but NOT when another real window
+      // (compose after Reply) is opening; that would pin activeWindow on 3pane.
+      if (OtherActivatableGeckoWindowVisible()) {
+        // Fall through and deactivate.
+      } else if (HasVisibleNoFocusPopupChild() || RecentlyHadUserInput()) {
+        return;
       }
     }
   }
@@ -2017,15 +2222,31 @@ void nsWindow::OnFocus(bool aFocus) {
 }
 
 void nsWindow::OnWindowActivation(bool aActive) {
-  // Track activation for Gecko only. Do not raise/requestActivate here —
-  // that races the compositor and freezes input (see OnFocus).
   if (IsPopup() || mIsAlert || !ShouldAcceptActivate()) {
     return;
   }
   if (aActive) {
+    mPostClickReclaimScheduled = false;
     DispatchActivateEvent(true);
+    return;
   }
-  // On deactivate: let OnFocus(false) decide whether to DispatchDeactivate.
+  // Another TopLevel/Dialog is up (compose, account settings, …). Yield
+  // cleanly — do not treat this as KWin demotion after a folder click.
+  if (OtherActivatableGeckoWindowVisible()) {
+    mPostClickReclaimScheduled = false;
+    DispatchActivateEvent(false);
+    return;
+  }
+  // Demoted by compositor after a click (folder switch, no-focus menu).
+  // Schedule at most one reclaim burst per user input — never re-arm from
+  // reclaim-induced deactivation (that froze input in earlier patches).
+  if (RecentlyHadUserInput() && !mPostClickReclaimScheduled) {
+    mPostClickReclaimScheduled = true;
+    ScheduleReclaimActivationAfter(0);
+    ScheduleReclaimActivationAfter(80);
+    return;
+  }
+  DispatchActivateEvent(false);
 }
 
 
@@ -2306,12 +2527,36 @@ void nsWindow::OnMouseEvent(QMouseEvent* aEvent, bool aDown) {
     mLastClickTime = now;
   }
 
+  // Match GTK: mButtons is the set of currently pressed buttons *after*
+  // applying this event (down includes the button, up excludes it). Leaving
+  // mButtons at 0 breaks pointer conversion / click synthesis for chrome
+  // HTML buttons (Reply, Forward, New Message look hoverable but never fire).
+  int16_t buttons = 0;
+  const Qt::MouseButtons qButtons = aEvent->buttons();
+  if (qButtons & Qt::LeftButton) {
+    buttons |= MouseButtonsFlag::ePrimaryFlag;
+  }
+  if (qButtons & Qt::RightButton) {
+    buttons |= MouseButtonsFlag::eSecondaryFlag;
+  }
+  if (qButtons & Qt::MiddleButton) {
+    buttons |= MouseButtonsFlag::eMiddleFlag;
+  }
+  if (qButtons & Qt::BackButton) {
+    buttons |= MouseButtonsFlag::e4thFlag;
+  }
+  if (qButtons & Qt::ForwardButton) {
+    buttons |= MouseButtonsFlag::e5thFlag;
+  }
+
   WidgetMouseEvent event(true, aDown ? eMouseDown : eMouseUp, this,
                          WidgetMouseEvent::eReal);
   event.mRefPoint = point;
   event.mButton = button;
+  event.mButtons = buttons;
   event.mModifiers = QtModifiers(aEvent->modifiers());
   event.mClickCount = uint32_t(std::max(1, mClickCount));
+  event.mPressure = aDown ? 1.0f : 0.0f;
   DispatchInputEvent(&event);
 
   // Right-click (or Ctrl+click) context menu on press.
@@ -2326,6 +2571,7 @@ void nsWindow::OnMouseEvent(QMouseEvent* aEvent, bool aDown) {
     WidgetMouseEvent context(true, eContextMenu, this, WidgetMouseEvent::eReal);
     context.mRefPoint = point;
     context.mButton = button;
+    context.mButtons = buttons;
     context.mModifiers = QtModifiers(aEvent->modifiers());
     context.mClickCount = 1;
     if (button == MouseButton::ePrimary) {
@@ -2352,8 +2598,21 @@ void nsWindow::OnMouseMove(QMouseEvent* aEvent) {
     }
   }
 
+  int16_t buttons = 0;
+  const Qt::MouseButtons qButtons = aEvent->buttons();
+  if (qButtons & Qt::LeftButton) {
+    buttons |= MouseButtonsFlag::ePrimaryFlag;
+  }
+  if (qButtons & Qt::RightButton) {
+    buttons |= MouseButtonsFlag::eSecondaryFlag;
+  }
+  if (qButtons & Qt::MiddleButton) {
+    buttons |= MouseButtonsFlag::eMiddleFlag;
+  }
+
   WidgetMouseEvent event(true, eMouseMove, this, WidgetMouseEvent::eReal);
   event.mRefPoint = point;
+  event.mButtons = buttons;
   event.mModifiers = QtModifiers(aEvent->modifiers());
   DispatchInputEvent(&event);
 }
