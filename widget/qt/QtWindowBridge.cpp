@@ -272,9 +272,6 @@ void QtWindowBridge::focusOutEvent(QFocusEvent* aEvent) {
 
 void QtWindowBridge::keyPressEvent(QKeyEvent* aEvent) {
   if (mWidget) {
-    if (mWidget->ShouldAcceptActivate()) {
-      mWidget->NoteUserInteraction();
-    }
     mWidget->OnKeyEvent(aEvent, true);
   }
   QWindow::keyPressEvent(aEvent);
@@ -290,10 +287,7 @@ void QtWindowBridge::keyReleaseEvent(QKeyEvent* aEvent) {
 void QtWindowBridge::mousePressEvent(QMouseEvent* aEvent) {
   // Activate only windows that should own chrome focus. Popups, Media PiP and
   // alerts must not steal activation (tab goes inactive, media pauses, etc.).
-  // Do NOT schedule multi-delay reclaims here: that steals input for ~1s after
-  // every click (close button, chrome buttons appear dead).
   if (mWidget && mWidget->ShouldAcceptActivate()) {
-    mWidget->NoteUserInteraction();
     requestActivate();
   }
   if (mWidget) {

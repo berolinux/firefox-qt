@@ -484,24 +484,14 @@ void nsWindow::Show(bool aState) {
         mIsAlert || isNoFocusPopup ||
         (mAlwaysOnTop && mPiPType != PiPType::DocumentPiP);
     if (noStealFocus && mTransientParentWidget) {
-      mTransientParentWidget->NotePopupInteraction();
+      // Single parent reclaim only — no retries, no suppress timer.
       mTransientParentWidget->ReclaimActivation();
-      mTransientParentWidget->ScheduleReclaimActivationRetries();
+      mTransientParentWidget->ScheduleReclaimActivation();
     } else if (!IsPopup() && !mIsAlert && ShouldAcceptActivate()) {
-      // New dialogs / top-levels (TB system-integration after account Finish)
-      // must raise on Wayland or they map behind; also keep the parent in the
-      // app stack so closing the dialog does not leave the main window buried.
-      NotePopupInteraction();
-      if (mTransientParentWidget) {
-        mTransientParentWidget->NotePopupInteraction();
-        mTransientParentWidget->ReclaimActivation();
-      }
+      // Dialog/top-level: raise this window only (not parent). Parent raise
+      // while a dialog maps fights focus and freezes input on KDE/Wayland.
       ReclaimActivation();
-      ScheduleReclaimActivationRetries();
-      if (mTransientParentWidget) {
-        // Dialog stays on top of parent; retries still re-raise this window.
-        ScheduleReclaimActivation();
-      }
+      ScheduleReclaimActivation();
     }
 #ifdef ACCESSIBILITY
     if (a11y::ShouldA11yBeEnabled()) {
@@ -512,25 +502,16 @@ void nsWindow::Show(bool aState) {
     if (mWaylandVsyncSource) {
       mWaylandVsyncSource->DisableVSyncSource();
     }
-    // Closing a no-focus popup, alert, or dialog (e.g. TB hamburger → Settings,
-    // account-hub Finish, system-integration) is a common demotion trigger on
-    // KDE/Wayland: focus goes null after unmap and the compositor lowers us.
+    // After popup/dialog unmap, re-activate parent once (deferred).
     const bool isNoFocusPopup =
         IsPopup() && mQtWindow &&
         (mQtWindow->flags() & Qt::WindowDoesNotAcceptFocus);
     const bool reclaimParentOnHide =
         mTransientParentWidget &&
         (isNoFocusPopup || mIsAlert || mWindowType == WindowType::Dialog);
-    if (reclaimParentOnHide) {
-      mTransientParentWidget->NotePopupInteraction();
-      mTransientParentWidget->ReclaimActivation();
-    }
     mQtWindow->hide();
     if (reclaimParentOnHide) {
-      mTransientParentWidget->ScheduleReclaimActivationRetries();
-    } else if (!IsPopup() && ShouldAcceptActivate()) {
-      // Top-level hide is rare; if chrome remaps, reclaim after.
-      NotePopupInteraction();
+      mTransientParentWidget->ScheduleReclaimActivation();
     }
   }
 }
@@ -854,9 +835,6 @@ void nsWindow::ReclaimActivation() {
   if (!mQtWindow || mIsDestroyed || !mIsVisible || !ShouldAcceptActivate()) {
     return;
   }
-  // raise() + requestActivate(): on KDE/Wayland, skipping Gecko's
-  // WindowDeactivated is not enough — the compositor has already restacked
-  // the surface behind other apps when a no-focus popup mapped/unmapped.
   mQtWindow->raise();
   mQtWindow->requestActivate();
 }
@@ -865,8 +843,6 @@ void nsWindow::ScheduleReclaimActivation() {
   if (!mQtWindow || mIsDestroyed || !ShouldAcceptActivate()) {
     return;
   }
-  // Run after the current Wayland configure/focus sequence so the token and
-  // stacking update apply on top of the popup map/unmap.
   QPointer<QtWindowBridge> weak = mQtWindow.get();
   QTimer::singleShot(0, mQtWindow.get(), [weak]() {
     if (!weak) {
@@ -876,56 +852,6 @@ void nsWindow::ScheduleReclaimActivation() {
       w->ReclaimActivation();
     }
   });
-}
-
-void nsWindow::ScheduleReclaimActivationRetries() {
-  if (!mQtWindow || mIsDestroyed || !ShouldAcceptActivate()) {
-    return;
-  }
-  // Only for dialog/popup map-unmap (not ordinary clicks). Keep the set
-  // small so we do not thrash focus and block input delivery.
-  QPointer<QtWindowBridge> weak = mQtWindow.get();
-  for (int delayMs : {0, 100, 350}) {
-    QTimer::singleShot(delayMs, mQtWindow.get(), [weak]() {
-      if (!weak) {
-        return;
-      }
-      if (nsWindow* w = weak->GetWidget()) {
-        // Stop retrying once another of our windows holds focus, or this
-        // window is no longer supposed to accept activation.
-        if (QWindow* focused = QGuiApplication::focusWindow()) {
-          if (focused != weak.data()) {
-            auto* bridge = qobject_cast<QtWindowBridge*>(focused);
-            if (bridge && bridge->GetWidget() &&
-                bridge->GetWidget()->ShouldAcceptActivate()) {
-              return;
-            }
-          }
-        }
-        w->ReclaimActivation();
-      }
-    });
-  }
-}
-
-void nsWindow::NoteUserInteraction() {
-  // Short: only bridges the immediate focus-out after a click into chrome.
-  const auto until =
-      mozilla::TimeStamp::Now() + mozilla::TimeDuration::FromMilliseconds(400);
-  if (mIgnoreDeactivationUntil.IsNull() || mIgnoreDeactivationUntil < until) {
-    mIgnoreDeactivationUntil = until;
-  }
-}
-
-void nsWindow::NoteChromeLifecycle() {
-  // Longer: popup/dialog show-hide and idle-opened dialogs (TB Finish).
-  mIgnoreDeactivationUntil =
-      mozilla::TimeStamp::Now() + mozilla::TimeDuration::FromMilliseconds(1200);
-}
-
-bool nsWindow::ShouldSuppressDeactivation() const {
-  return !mIgnoreDeactivationUntil.IsNull() &&
-         mozilla::TimeStamp::Now() < mIgnoreDeactivationUntil;
 }
 
 bool nsWindow::HasVisibleTransientChild(const nsWindow* aOther) const {
@@ -2008,59 +1934,42 @@ void nsWindow::OnFocus(bool aFocus) {
   // matches :-moz-window-inactive.
   if (IsPopup()) {
     if (aFocus && mTransientParentWidget) {
-      // Keep the parent browser marked active while the popup is focused
-      // (menus that accept focus for keyboard navigation).
-      mTransientParentWidget->NotePopupInteraction();
+      // Keep parent marked active for Gecko; do NOT requestActivate (loops).
       mTransientParentWidget->DispatchActivateEvent(true);
-      mTransientParentWidget->ReclaimActivation();
     }
     return;
   }
 
   if (!aFocus) {
-    auto keepActiveAndReclaim = [this]() {
-      // Skipping WindowDeactivated alone leaves the surface demoted on KWin;
-      // reclaim once (+ next tick). Multi-retries here eat subsequent clicks.
-      NoteChromeLifecycle();
-      ReclaimActivation();
-      ScheduleReclaimActivation();
-    };
-
-    // Focus moved to one of our transient children (popup or dialog) —
-    // do not demote the parent chrome window out of the app stack.
+    // Focus moved to one of our popups — do not deactivate the browser.
+    // Important: only skip Gecko deactivation. Never raise/requestActivate
+    // from here: on Wayland focusWindow() is often null and reclaim loops
+    // forever, freezing all input (TB after account-hub Finish).
     if (QWindow* focused = QGuiApplication::focusWindow()) {
       if (auto* bridge = qobject_cast<QtWindowBridge*>(focused)) {
         if (nsWindow* w = bridge->GetWidget()) {
-          if (HasVisibleTransientChild(w) ||
-              (w->mTransientParentWidget == this)) {
-            // Parent stays Gecko-active for popups; dialogs own focus but
-            // parent must not fall behind other apps.
-            if (w->IsPopup()) {
-              keepActiveAndReclaim();
-              return;
-            }
-            NoteChromeLifecycle();
-            // Dialog owns focus; do not spam reclaim (blocks input).
+          if (w->IsPopup() && w->mTransientParentWidget == this) {
             return;
           }
-          // Focus moved to another of our top-level windows (not our child).
-          if (w != this && w->ShouldAcceptActivate()) {
-            NoteUserInteraction();
+          // Child dialog owns focus; leave parent Gecko-active state alone
+          // for a11y/chrome styling only when it is a popup (above). Dialogs
+          // should deactivate the parent normally.
+        }
+      }
+    } else if (HasAnyVisibleTransientChild()) {
+      // No-focus popup visible (WindowDoesNotAcceptFocus): keep chrome active.
+      for (QWindow* win : QGuiApplication::allWindows()) {
+        auto* bridge = qobject_cast<QtWindowBridge*>(win);
+        if (!bridge || !win->isVisible()) {
+          continue;
+        }
+        if (nsWindow* w = bridge->GetWidget()) {
+          if (w->IsPopup() && w->mTransientParentWidget == this) {
             return;
           }
         }
       }
-    } else {
-      // No Qt focus window: no-focus popup, HTML <dialog> close, or Wayland
-      // restack between our surfaces. Keep active while children exist or
-      // recent user interaction (TB Finish → system integration).
-      if (HasAnyVisibleTransientChild() || ShouldSuppressDeactivation()) {
-        keepActiveAndReclaim();
-        return;
-      }
     }
-  } else {
-    // Gained focus already implies activation; avoid extra raise() spam.
   }
 
   DispatchActivateEvent(aFocus);
@@ -2077,24 +1986,17 @@ void nsWindow::OnFocus(bool aFocus) {
 }
 
 void nsWindow::OnWindowActivation(bool aActive) {
-  // Activation (stacking / xdg_activation) is distinct from keyboard focus on
-  // Wayland. A no-focus popup or late dialog open can leave us deactivated
-  // without a useful focusWindow(); reclaim while we still own the interaction.
+  // Track activation for Gecko only. Do not raise/requestActivate here —
+  // that races the compositor and freezes input (see OnFocus).
   if (IsPopup() || mIsAlert || !ShouldAcceptActivate()) {
     return;
   }
   if (aActive) {
     DispatchActivateEvent(true);
-    return;
   }
-  // Demotion during chrome lifecycle (popup/dialog): reclaim lightly.
-  // Never multi-retry from here — that fights the user and freezes input.
-  if (ShouldSuppressDeactivation() || HasAnyVisibleTransientChild()) {
-    ReclaimActivation();
-    ScheduleReclaimActivation();
-    return;
-  }
+  // On deactivate: let OnFocus(false) decide whether to DispatchDeactivate.
 }
+
 
 static Modifiers QtModifiers(Qt::KeyboardModifiers aMods) {
   Modifiers mods = MODIFIER_NONE;

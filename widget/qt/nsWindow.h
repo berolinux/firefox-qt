@@ -112,24 +112,13 @@ class nsWindow final : public nsIWidget {
   // True when this window may become the active chrome window (not PiP/alert).
   bool ShouldAcceptActivate() const;
 
-  // Raise + requestActivate for chrome windows. Used when no-focus popups
-  // (app menus, doorhangers) would otherwise leave the parent demoted on
-  // KDE/Wayland after the popup maps or unmaps.
+  // One-shot raise+requestActivate. Only from Show/Hide of chrome popups
+  // or dialogs — never from focus/activation handlers (that loops on Wayland
+  // and freezes all input).
   void ReclaimActivation();
-  // Same, deferred to the next event-loop turn (after Wayland map/unmap).
   void ScheduleReclaimActivation();
-  // A few delayed reclaims only for chrome lifecycle (dialog/popup map), not
-  // for ordinary clicks (retries thrash focus and eat input).
-  void ScheduleReclaimActivationRetries();
-  // Brief suppress after user input; longer only for popup/dialog lifecycle.
-  void NoteUserInteraction();
-  void NoteChromeLifecycle();
-  // Back-compat alias used by older call sites in this series.
-  void NotePopupInteraction() { NoteChromeLifecycle(); }
-  bool ShouldSuppressDeactivation() const;
-  // True if `aOther` is a visible transient child of this window.
+  // True if aOther is a visible transient child of this window.
   bool HasVisibleTransientChild(const nsWindow* aOther) const;
-  // True if any of our QWindows is a visible transient child of this.
   bool HasAnyVisibleTransientChild() const;
 
   void OnExpose();
@@ -270,9 +259,6 @@ class nsWindow final : public nsIWidget {
   int32_t mClickCount = 0;
   LayoutDeviceIntPoint mLastClickPoint;
   mozilla::TimeStamp mLastClickTime;
-  // While set in the future, focus/activation loss from no-focus popups
-  // (TB app menu → Settings, doorhangers) must not demote this chrome window.
-  mozilla::TimeStamp mIgnoreDeactivationUntil;
 
 #ifdef ACCESSIBILITY
   RefPtr<mozilla::a11y::LocalAccessible> mRootAccessible;
