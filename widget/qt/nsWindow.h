@@ -112,6 +112,16 @@ class nsWindow final : public nsIWidget {
   // True when this window may become the active chrome window (not PiP/alert).
   bool ShouldAcceptActivate() const;
 
+  // Raise + requestActivate for chrome windows. Used when no-focus popups
+  // (app menus, doorhangers) would otherwise leave the parent demoted on
+  // KDE/Wayland after the popup maps or unmaps.
+  void ReclaimActivation();
+  // Same, deferred to the next event-loop turn (after Wayland map/unmap).
+  void ScheduleReclaimActivation();
+  // Suppress Gecko deactivation + reclaim for a short window (popup lifecycle).
+  void NotePopupInteraction();
+  bool ShouldSuppressDeactivation() const;
+
   void OnExpose();
   void OnResize(int aWidth, int aHeight);
   void OnMove(int aX, int aY);
@@ -122,6 +132,8 @@ class nsWindow final : public nsIWidget {
   // aOldState / aNewState are Qt::WindowStates bitfields.
   void OnWindowStateChanged(int aOldState, int aNewState);
   void OnFocus(bool aFocus);
+  // QEvent::WindowActivate / WindowDeactivate (stacking), separate from focus.
+  void OnWindowActivation(bool aActive);
   void OnKeyEvent(QKeyEvent* aEvent, bool aDown);
   void OnMouseEvent(QMouseEvent* aEvent, bool aDown);
   void OnMouseMove(QMouseEvent* aEvent);
@@ -248,6 +260,9 @@ class nsWindow final : public nsIWidget {
   int32_t mClickCount = 0;
   LayoutDeviceIntPoint mLastClickPoint;
   mozilla::TimeStamp mLastClickTime;
+  // While set in the future, focus/activation loss from no-focus popups
+  // (TB app menu → Settings, doorhangers) must not demote this chrome window.
+  mozilla::TimeStamp mIgnoreDeactivationUntil;
 
 #ifdef ACCESSIBILITY
   RefPtr<mozilla::a11y::LocalAccessible> mRootAccessible;
