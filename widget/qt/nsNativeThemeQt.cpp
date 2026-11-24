@@ -22,6 +22,7 @@
 #include <QAbstractSpinBox>
 #include <QApplication>
 #include <QPainter>
+#include <QPainterPath>
 #include <QStyle>
 #include <QStyleOption>
 #include <QStyleOptionButton>
@@ -133,6 +134,19 @@ nsNativeThemeQt::PaintMode nsNativeThemeQt::ChoosePaintMode(
   if (IsWidgetStyled(aFrame->PresContext(), aFrame, aAppearance)) {
     return PaintMode::FallbackTheme;
   }
+  // Match GTK: checkbox/radio always use the shared Theme painter. That path
+  // is snap-correct under WebRender blob images and is what paints the
+  // commonDialog "remember password" indicator. QStyle PE_Indicator* is also
+  // unreliable off-screen under Breeze.
+  // Tooltips: Theme fill uses InfoBackground which we pair with InfoText from
+  // the system tip palette. PE_PanelTipLabel alone left light-scheme black
+  // text on a dark Breeze tip (black-on-black).
+  if (aAppearance == StyleAppearance::Checkbox ||
+      aAppearance == StyleAppearance::Radio ||
+      aAppearance == StyleAppearance::Tooltip ||
+      IsWidgetAlwaysNonNative(aFrame, aAppearance)) {
+    return PaintMode::FallbackTheme;
+  }
   // Prefer QStyle when the frame's color-scheme matches the system. Forced
   // light content on a dark Plasma session falls back to Theme so contrast
   // stays correct.
@@ -185,11 +199,10 @@ static void DrawImageToContext(gfxContext* aContext, const QImage& aImage,
     return;
   }
 
-  QImage converted = aImage;
-  if (converted.format() != QImage::Format_ARGB32_Premultiplied &&
-      converted.format() != QImage::Format_ARGB32) {
-    converted = converted.convertToFormat(QImage::Format_ARGB32_Premultiplied);
-  }
+  // Moz2D B8G8R8A8 is non-premultiplied; un-premultiply Qt's ARGB32_Premultiplied
+  // so alpha-blended edges (and solid glyphs) stay visible instead of washed out.
+  QImage converted =
+      aImage.convertToFormat(QImage::Format_ARGB32);  // non-premultiplied
 
   const IntSize size(converted.width(), converted.height());
   RefPtr<DataSourceSurface> surface = Factory::CreateDataSourceSurface(
@@ -211,8 +224,16 @@ static void DrawImageToContext(gfxContext* aContext, const QImage& aImage,
   }
 
   DrawTarget* dt = aContext->GetDrawTarget();
-  const Point dest = aSnapped ? Point(NS_lround(aDest.x), NS_lround(aDest.y))
-                              : ToPoint(aDest);
+  // Match nsNativeThemeGTK: when snapped, aDest is device-space; DrawTarget is
+  // user-space, so undo the current translation + device offset. Without this,
+  // indicators paint outside the clip (invisible checkbox / radio / buttons).
+  Point dest;
+  if (aSnapped) {
+    dest = Point(NS_lround(aDest.x), NS_lround(aDest.y)) -
+           dt->GetTransform().GetTranslation() - aContext->GetDeviceOffset();
+  } else {
+    dest = ToPoint(aDest);
+  }
   dt->DrawSurface(surface, Rect(dest, Size(size.width, size.height)),
                   Rect(Point(), Size(size.width, size.height)));
 }
@@ -244,15 +265,15 @@ bool nsNativeThemeQt::PaintQtWidget(gfxContext* aContext, nsIFrame* aFrame,
   nsPresContext* pc = aFrame->PresContext();
   const nscoord appUnitsPerDevPixel = pc->AppUnitsPerDevPixel();
 
-  gfxRect gfxRectDev = pc->AppUnitsToGfxUnits(aRect);
-  bool snapped = aContext->UserToDevicePixelSnapped(
-      gfxRectDev, gfxContext::SnapOption::PrioritizeSize);
-  if (!snapped) {
-    gfxRectDev = aContext->UserToDevice(gfxRectDev);
-  }
+  // Start in user space (app units → CSS/gfx units). UserToDevicePixelSnapped
+  // may rewrite the rect into device space when it returns true — same as GTK.
+  // Do NOT force UserToDevice when unsnapped: DrawTarget paints in user space.
+  gfxRect paintRect = pc->AppUnitsToGfxUnits(aRect);
+  const bool snapped = aContext->UserToDevicePixelSnapped(
+      paintRect, gfxContext::SnapOption::PrioritizeSize);
 
-  const int width = std::max(1, NS_lround(gfxRectDev.Width()));
-  const int height = std::max(1, NS_lround(gfxRectDev.Height()));
+  const int width = std::max(1, NS_lround(paintRect.Width()));
+  const int height = std::max(1, NS_lround(paintRect.Height()));
   if (width > 4096 || height > 4096) {
     return false;
   }
@@ -438,6 +459,11 @@ bool nsNativeThemeQt::PaintQtWidget(gfxContext* aContext, nsIFrame* aFrame,
     }
     case StyleAppearance::Checkbox:
     case StyleAppearance::Radio: {
+      // Gecko paints the XUL/HTML label; we only paint the indicator box.
+      // Breeze/Oxygen PE_Indicator* often emits empty pixels for indicator-only
+      // rects (host is off-screen). Filling Base first made ImageHasVisiblePixels
+      // always true so our fallback never ran — plain text, no checkbox box.
+      // Always draw a simple, high-contrast indicator ourselves.
       QStyleOptionButton opt;
       InitCommonOption(opt, host, widgetRect, qstate);
       if (elementState.HasState(dom::ElementState::CHECKED)) {
@@ -451,32 +477,83 @@ bool nsNativeThemeQt::PaintQtWidget(gfxContext* aContext, nsIFrame* aFrame,
           aAppearance == StyleAppearance::Checkbox) {
         opt.state |= QStyle::State_NoChange;
       }
-      // Base plate: many styles sample the widget background under the mark.
-      painter.fillRect(widgetRect, opt.palette.color(QPalette::Base));
+      opt.palette = QApplication::palette();
 
-      const QStyle::ControlElement ce = aAppearance == StyleAppearance::Checkbox
-                                            ? QStyle::CE_CheckBox
-                                            : QStyle::CE_RadioButton;
-      const QStyle::PrimitiveElement pe =
+      const QStyle::PixelMetric metricW =
           aAppearance == StyleAppearance::Checkbox
-              ? QStyle::PE_IndicatorCheckBox
-              : QStyle::PE_IndicatorRadioButton;
-      const QStyle::SubElement se = aAppearance == StyleAppearance::Checkbox
-                                        ? QStyle::SE_CheckBoxIndicator
-                                        : QStyle::SE_RadioButtonIndicator;
+              ? QStyle::PM_IndicatorWidth
+              : QStyle::PM_ExclusiveIndicatorWidth;
+      const QStyle::PixelMetric metricH =
+          aAppearance == StyleAppearance::Checkbox
+              ? QStyle::PM_IndicatorHeight
+              : QStyle::PM_ExclusiveIndicatorHeight;
+      int iw = style->pixelMetric(metricW, &opt, host);
+      int ih = style->pixelMetric(metricH, &opt, host);
+      if (iw <= 0) {
+        iw = std::min(width, height);
+      }
+      if (ih <= 0) {
+        ih = std::min(width, height);
+      }
+      // Never request a side larger than the paint rect (old max(12, …) made
+      // 1×1/small rects paint empty after intersect + adjusted inset).
+      const int side = std::max(1, std::min({iw, ih, width, height}));
+      QRect indicator((width - side) / 2, (height - side) / 2, side, side);
+      indicator = indicator.intersected(widgetRect);
+      if (indicator.isEmpty()) {
+        indicator = widgetRect;
+      }
 
-      style->drawControl(ce, &opt, &painter, host);
-      if (!ImageHasVisiblePixels(image)) {
-        image.fill(Qt::transparent);
-        painter.fillRect(widgetRect, opt.palette.color(QPalette::Base));
-        QRect indicator = style->subElementRect(se, &opt, host);
-        if (!indicator.isValid() || indicator.isEmpty()) {
-          indicator = widgetRect;
+      image.fill(Qt::transparent);
+      QColor border = opt.palette.color(QPalette::WindowText);
+      QColor fill = opt.palette.color(QPalette::Base);
+      // Force contrast — Breeze dark can make WindowText ≈ Base when sampled
+      // from an off-screen host.
+      auto lum = [](const QColor& c) {
+        return (2 * c.red() + 3 * c.green() + c.blue()) / 6;
+      };
+      if (std::abs(lum(border) - lum(fill)) < 48) {
+        if (lum(fill) > 128) {
+          border = QColor(32, 32, 32);
+          fill = QColor(250, 250, 250);
+        } else {
+          border = QColor(230, 230, 230);
+          fill = QColor(40, 40, 40);
         }
-        opt.rect = indicator;
-        style->drawPrimitive(pe, &opt, &painter, host);
-        if (!ImageHasVisiblePixels(image)) {
-          return false;
+      }
+      painter.setRenderHint(QPainter::Antialiasing, true);
+      const int inset = side >= 6 ? 1 : 0;
+      painter.setPen(QPen(border, side >= 8 ? 1.5 : 1.0));
+      painter.setBrush(fill);
+      if (aAppearance == StyleAppearance::Checkbox) {
+        painter.drawRoundedRect(indicator.adjusted(inset, inset, -inset, -inset),
+                                2, 2);
+        if (opt.state & QStyle::State_On) {
+          QPen checkPen(border, std::max(1.5, side / 8.0), Qt::SolidLine,
+                        Qt::RoundCap, Qt::RoundJoin);
+          painter.setPen(checkPen);
+          painter.setBrush(Qt::NoBrush);
+          const qreal x = indicator.x();
+          const qreal y = indicator.y();
+          const qreal w = indicator.width();
+          const qreal h = indicator.height();
+          QPainterPath path;
+          path.moveTo(x + 0.22 * w, y + 0.50 * h);
+          path.lineTo(x + 0.42 * w, y + 0.72 * h);
+          path.lineTo(x + 0.80 * w, y + 0.28 * h);
+          painter.drawPath(path);
+        } else if (opt.state & QStyle::State_NoChange) {
+          painter.setPen(QPen(border, 2.0, Qt::SolidLine, Qt::RoundCap));
+          painter.drawLine(indicator.left() + 3, indicator.center().y(),
+                           indicator.right() - 3, indicator.center().y());
+        }
+      } else {
+        painter.drawEllipse(indicator.adjusted(inset, inset, -inset, -inset));
+        if (opt.state & QStyle::State_On) {
+          painter.setBrush(border);
+          painter.setPen(Qt::NoPen);
+          const int m = std::max(1, side / 4);
+          painter.drawEllipse(indicator.adjusted(m, m, -m, -m));
         }
       }
       break;
@@ -579,7 +656,7 @@ bool nsNativeThemeQt::PaintQtWidget(gfxContext* aContext, nsIFrame* aFrame,
     return false;
   }
 
-  DrawImageToContext(aContext, image, gfxRectDev.TopLeft(), snapped);
+  DrawImageToContext(aContext, image, paintRect.TopLeft(), snapped);
   (void)appUnitsPerDevPixel;
   return true;
 }
@@ -748,44 +825,10 @@ LayoutDeviceIntSize nsNativeThemeQt::GetMinimumWidgetSize(
   QStyle* style = QApplication::style();
   QWidget* host = StylePaintHost();
 
+  // Checkbox/radio use Theme painting; keep sizes in sync with Theme.
   if (aAppearance == StyleAppearance::Checkbox ||
-      aAppearance == StyleAppearance::Radio) {
-    if (style) {
-      QStyleOptionButton opt;
-      InitCommonOption(opt, host, QRect(0, 0, 16, 16), QStyle::State_Enabled);
-      const QStyle::ContentsType ct =
-          aAppearance == StyleAppearance::Checkbox ? QStyle::CT_CheckBox
-                                                   : QStyle::CT_RadioButton;
-      const QSize sz = style->sizeFromContents(ct, &opt, QSize(0, 0), host);
-      if (sz.width() > 0 && sz.height() > 0) {
-        LayoutDeviceIntSize result;
-        result.SizeTo(sz.width(), sz.height());
-        return result;
-      }
-      const QStyle::PixelMetric metricW =
-          aAppearance == StyleAppearance::Checkbox
-              ? QStyle::PM_IndicatorWidth
-              : QStyle::PM_ExclusiveIndicatorWidth;
-      const QStyle::PixelMetric metricH =
-          aAppearance == StyleAppearance::Checkbox
-              ? QStyle::PM_IndicatorHeight
-              : QStyle::PM_ExclusiveIndicatorHeight;
-      int w = style->pixelMetric(metricW, &opt, host);
-      int h = style->pixelMetric(metricH, &opt, host);
-      if (w > 0 && h > 0) {
-        LayoutDeviceIntSize result;
-        result.SizeTo(w, h);
-        return result;
-      }
-    }
-    const DPIRatio dpiRatio = GetDPIRatio(aFrame, aAppearance);
-    const CSSCoord side = GetCheckboxRadioPrefSize();
-    LayoutDeviceIntSize result;
-    result.SizeTo((side * dpiRatio).Rounded(), (side * dpiRatio).Rounded());
-    return result;
-  }
-
-  if (ChoosePaintMode(aFrame, aAppearance) != PaintMode::QtStyle) {
+      aAppearance == StyleAppearance::Radio ||
+      ChoosePaintMode(aFrame, aAppearance) != PaintMode::QtStyle) {
     return Theme::GetMinimumWidgetSize(aPresContext, aFrame, aAppearance);
   }
 

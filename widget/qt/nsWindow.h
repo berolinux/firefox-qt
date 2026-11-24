@@ -112,16 +112,25 @@ class nsWindow final : public nsIWidget {
   // True when this window may become the active chrome window (not PiP/alert).
   bool ShouldAcceptActivate() const;
 
-  // One-shot raise+requestActivate. Only from Show/Hide/Enable/mouse —
-  // never from focus/activation handlers (that loops on Wayland).
+  // One-shot raise+requestActivate. Focus handlers may schedule at most one
+  // post-click burst (guarded); they must not re-arm from reclaim itself.
   void ReclaimActivation();
   void ScheduleReclaimActivation();
   void ScheduleReclaimActivationAfter(int aDelayMs);
   // Fixed 0+100ms reclaim after popup/dialog lifecycle (not focus-driven).
   void ScheduleChromeLifecycleReclaim();
+  // Record a real user pointer/key event (starts a short post-click window).
+  void NoteUserInput();
+  bool RecentlyHadUserInput(
+      mozilla::TimeDuration aWithin = mozilla::TimeDuration::FromMilliseconds(
+          400)) const;
   // True if aOther is a visible transient child of this window.
   bool HasVisibleTransientChild(const nsWindow* aOther) const;
   bool HasAnyVisibleTransientChild() const;
+  bool HasVisibleNoFocusPopupChild() const;
+  // Another visible top-level/dialog that may own activation (compose, prefs).
+  // Used so post-click reclaim does not steal focus from newly opened windows.
+  bool OtherActivatableGeckoWindowVisible() const;
 
   void OnExpose();
   void OnResize(int aWidth, int aHeight);
@@ -261,6 +270,10 @@ class nsWindow final : public nsIWidget {
   int32_t mClickCount = 0;
   LayoutDeviceIntPoint mLastClickPoint;
   mozilla::TimeStamp mLastClickTime;
+  // Last real user input (mouse/key). Used for a single post-click restack.
+  mozilla::TimeStamp mLastUserInputTime;
+  // Prevents OnWindowActivation(false) from scheduling reclaim forever.
+  bool mPostClickReclaimScheduled = false;
 
 #ifdef ACCESSIBILITY
   RefPtr<mozilla::a11y::LocalAccessible> mRootAccessible;

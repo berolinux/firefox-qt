@@ -27,6 +27,7 @@
 #include <QRegion>
 #include <QGuiApplication>
 #include <QInputMethod>
+#include <QPalette>
 #include <QWindowStateChangeEvent>
 #include <QSurfaceFormat>
 
@@ -225,6 +226,27 @@ void QtWindowBridge::exposeEvent(QExposeEvent* aEvent) {
       }
       mBackingStore->endPaint();
       mBackingStore->flush(QRegion(0, 0, width(), height()));
+    } else if (!mBackingStoreValid) {
+      // Opaque chrome dialogs (commonDialog / "Authentication Required") can
+      // map and go modal before the first Gecko present. With no pixels
+      // flushed, Wayland shows an empty surface — Alt-Tab title only, parent
+      // blocked. Paint a solid window-color plate so the dialog is visible.
+      EnsureBackingStore();
+      mBackingStore->beginPaint(QRegion(0, 0, width(), height()));
+      {
+        QPainter painter(mBackingStore->paintDevice());
+        painter.setCompositionMode(QPainter::CompositionMode_Source);
+        QColor bg = QGuiApplication::palette().color(QPalette::Window);
+        if (!bg.isValid() || bg.alpha() == 0) {
+          bg = QColor(240, 240, 240);
+        }
+        painter.fillRect(QRectF(0, 0, width(), height()), bg);
+      }
+      mBackingStore->endPaint();
+      mBackingStore->flush(QRegion(0, 0, width(), height()));
+      mBackingStoreValid = true;
+    } else {
+      FlushBackingStore();
     }
   }
   if (mWidget) {
@@ -272,6 +294,9 @@ void QtWindowBridge::focusOutEvent(QFocusEvent* aEvent) {
 
 void QtWindowBridge::keyPressEvent(QKeyEvent* aEvent) {
   if (mWidget) {
+    if (mWidget->ShouldAcceptActivate()) {
+      mWidget->NoteUserInput();
+    }
     mWidget->OnKeyEvent(aEvent, true);
   }
   QWindow::keyPressEvent(aEvent);
@@ -287,11 +312,19 @@ void QtWindowBridge::keyReleaseEvent(QKeyEvent* aEvent) {
 void QtWindowBridge::mousePressEvent(QMouseEvent* aEvent) {
   // Activate only windows that should own chrome focus. Popups, Media PiP and
   // alerts must not steal activation (tab goes inactive, media pauses, etc.).
-  // raise() matters on KDE/Wayland: requestActivate alone often does not
-  // restack after a no-focus menu demoted the surface.
   if (mWidget && mWidget->ShouldAcceptActivate()) {
+    mWidget->NoteUserInput();
+    // Defensive: a stuck WindowTransparentForInput after a modal makes the
+    // whole surface (including CSD close) ignore pointer events.
+    if (flags() & Qt::WindowTransparentForInput) {
+      setFlag(Qt::WindowTransparentForInput, false);
+    }
+    // Prefer raise-only when already active: requestActivate() every click
+    // races KWin xdg-activation and can demote after a few folder clicks.
     raise();
-    requestActivate();
+    if (!isActive()) {
+      requestActivate();
+    }
   }
   if (mWidget) {
     mWidget->OnMouseEvent(aEvent, true);
