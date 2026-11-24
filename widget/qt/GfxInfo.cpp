@@ -50,7 +50,8 @@ constexpr int CODEC_HW_DEC_HEVC = 1 << 12;
 constexpr int CODEC_HW_ENC_HEVC = 1 << 13;
 
 #define VAAPI_TEST_TIMEOUT_MS 2000
-#define VAAPI_PROBE_BINARY u"vaapitest"_ns
+// Firefox 160 folded the old vaapitest program into `gfxtest vaapi`.
+#define VAAPI_PROBE_BINARY u"gfxtest"_ns
 
 nsresult GfxInfo::Init() {
   DiscoverDrmRenderDevice();
@@ -79,7 +80,7 @@ void GfxInfo::DiscoverDrmRenderDevice() {
   }
 }
 
-// Spawn binDir/vaapitest with args; return pid and set *aOutPipe to stdout.
+// Spawn binDir/<binary> with args; return pid and set *aOutPipe to stdout.
 static pid_t SpawnProbe(const nsAString& aBinary, const char** aArgs,
                         int* aOutPipe) {
   nsCOMPtr<nsIFile> appFile;
@@ -91,6 +92,11 @@ static pid_t SpawnProbe(const nsAString& aBinary, const char** aArgs,
     return 0;
   }
   exePath->Append(aBinary);
+  // NativePath() returns a temporary. Keep the bytes alive across fork/exec.
+  nsAutoCString exeNativePath;
+  if (NS_FAILED(exePath->GetNativePath(exeNativePath))) {
+    return 0;
+  }
 
   int pipes[2];
   if (pipe(pipes) != 0) {
@@ -110,7 +116,7 @@ static pid_t SpawnProbe(const nsAString& aBinary, const char** aArgs,
     close(pipes[1]);
     // Close other fds? leave open is fine for short probe.
     char* argv[10];
-    argv[0] = const_cast<char*>(exePath->NativePath().get());
+    argv[0] = exeNativePath.BeginWriting();
     int i = 0;
     for (; aArgs[i] && i < 8; ++i) {
       argv[i + 1] = const_cast<char*>(aArgs[i]);
@@ -189,7 +195,7 @@ void GfxInfo::GetDataVAAPI() {
     return;
   }
 
-  const char* args[] = {"-d", mDrmRenderDevice.get(), nullptr};
+  const char* args[] = {"vaapi", "-d", mDrmRenderDevice.get(), nullptr};
   int pipeFd = -1;
   pid_t pid = SpawnProbe(VAAPI_PROBE_BINARY, args, &pipeFd);
   if (!pid) {
