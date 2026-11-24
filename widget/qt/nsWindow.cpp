@@ -577,10 +577,22 @@ void nsWindow::Resize(const DesktopRect& aRect, bool aRepaint) {
 
 void nsWindow::Enable(bool aState) {
   mEnabled = aState;
-  if (mQtWindow) {
-    mQtWindow->setFlags(mQtWindow->flags() |
-                        (aState ? Qt::WindowFlags() : Qt::WindowTransparentForInput));
+  if (!mQtWindow) {
+    return;
   }
+  // EnableParent(false) during AppWindow::ShowModal sets
+  // WindowTransparentForInput so the parent ignores clicks while a modal
+  // (e.g. TB system-integration after account Finish) is up.
+  // The old code only ORed the flag on and never cleared it on Enable(true),
+  // so after the modal closed the main window stayed permanently
+  // input-transparent — no clicks, not even the close button.
+  Qt::WindowFlags flags = mQtWindow->flags();
+  if (aState) {
+    flags &= ~Qt::WindowTransparentForInput;
+  } else {
+    flags |= Qt::WindowTransparentForInput;
+  }
+  mQtWindow->setFlags(flags);
 }
 
 bool nsWindow::IsEnabled() const { return mEnabled; }
