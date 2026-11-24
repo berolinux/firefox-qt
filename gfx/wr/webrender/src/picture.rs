@@ -106,6 +106,7 @@ use crate::pattern::filter::BlendFilterPattern;
 use crate::segment::EdgeMask;
 use api::ImageBufferKind;
 use crate::clip::{ClipChainInstance, ClipDataStore, ClipNodeId, ClipNodeFlags};
+use crate::spatial_node::round_device_pixel;
 use crate::spatial_tree::{SpatialTree, CoordinateSpaceMapping, SpatialNodeIndex, VisibleFace};
 use crate::composite::{tile_kind, CompositeTileSurface, CompositorKind, NativeTileId};
 use crate::composite::{CompositeTileDescriptor, CompositeTile};
@@ -1649,8 +1650,14 @@ pub fn get_relative_scale_offset(
 
     // Compositors expect things to be aligned on device pixels. Logic at a higher level ensures that is
     // true, but floating point inaccuracy can sometimes result in small differences, so remove
-    // them here.
-    scale_offset.offset = scale_offset.offset.round();
+    // them here. Quantize onto the 1/128px grid first, matching `snap_offset`: a value a few ulps
+    // below n+0.5 (an exact half at fractional DPR, after the f32 round-trip) would otherwise
+    // round the other way from the value it was meant to be and step cached tiles by a pixel.
+    let offset = scale_offset.offset;
+    scale_offset.offset = Vector2D::new(
+        round_device_pixel(offset.x),
+        round_device_pixel(offset.y),
+    );
 
     scale_offset
 }

@@ -226,16 +226,20 @@ pub struct SpatialNode {
 }
 
 /// Grid that a device-space offset is quantized to just before it is rounded
-/// to a device pixel (`snap_offset`, and the `should_snap` round in
-/// `update_transform`). The display-list builder reconstitutes a
-/// reference-frame origin as a scrolled-space value plus a re-added (fractional)
-/// external scroll offset; at large scroll magnitudes that f32 round-trip can
-/// leave the origin slightly off its intended sub-pixel position (a few of the
-/// smallest representable float increments, e.g. 201.49994 vs 201.5). That tiny
-/// error sits on the device-pixel snap tie and flips snapped content +/-1px
-/// frame-to-frame while scrolling. 1/128 px is far above that float noise yet far
-/// below a device pixel (about half Gecko's app-unit granularity), so quantizing
-/// removes the noise without disturbing genuine sub-pixel placement.
+/// to a device pixel (`snap_offset`, the `should_snap` round in
+/// `update_transform`, `get_relative_scale_offset`, and `get_device_rect`).
+/// The display-list builder reconstitutes a reference-frame origin as a
+/// scrolled-space value plus a re-added (fractional) external scroll offset; at
+/// large scroll magnitudes that f32 round-trip can leave the origin slightly
+/// off its intended sub-pixel position (a few of the smallest representable
+/// float increments, e.g. 201.49994 vs 201.5). That tiny error sits on the
+/// device-pixel snap tie and flips snapped content +/-1px frame-to-frame.
+/// Fractional device scales hit the same tie: a CSS edge times 1.5 is n+0.5,
+/// and the draw compositor blits cached tiles at the rounded device rect, so
+/// the flip translates the tile against pixels that were not redrawn. 1/128 px
+/// is far above that float noise yet far below a device pixel (about half
+/// Gecko's app-unit granularity), so quantizing removes the noise without
+/// disturbing genuine sub-pixel placement.
 ///
 /// This is only ever applied to device-space values that are about to be
 /// rounded. A reference frame's local origin is left exact: under a scaled
@@ -244,8 +248,15 @@ pub struct SpatialNode {
 /// would visibly shift by it.
 const DEVICE_OFFSET_QUANTUM: f32 = 1.0 / 128.0;
 
-fn quantize_device_offset(value: f32) -> f32 {
+pub(crate) fn quantize_device_offset(value: f32) -> f32 {
     (value / DEVICE_OFFSET_QUANTUM).round() * DEVICE_OFFSET_QUANTUM
+}
+
+/// Round to a device pixel after quantizing, so a value a few ulps below n+0.5
+/// takes the same side of the tie as n+0.5. Exact halves are unchanged
+/// (`f32::round` stays half-away-from-zero).
+pub(crate) fn round_device_pixel(value: f32) -> f32 {
+    quantize_device_offset(value).round()
 }
 
 /// Snap an offset to be incorporated into a transform, where the local space
@@ -264,8 +275,8 @@ fn snap_offset<OffsetUnits, ScaleUnits>(
     // composite offset; that offset must still be snapped here so the slice
     // composites on an integer boundary. Scroll slices already land integer
     // (their sampled offset is pre-snapped); sticky slices rely on this.
-    let snapped_x = quantize_device_offset(offset.x * scale.x).round();
-    let snapped_y = quantize_device_offset(offset.y * scale.y).round();
+    let snapped_x = round_device_pixel(offset.x * scale.x);
+    let snapped_y = round_device_pixel(offset.y * scale.y);
     Vector2D::new(
         if scale.x != 0.0 { snapped_x / scale.x } else { offset.x },
         if scale.y != 0.0 { snapped_y / scale.y } else { offset.y },
@@ -505,8 +516,8 @@ impl SpatialNode {
                             cs_scale_offset = scale_offset.then(&state.coordinate_system_relative_scale_offset);
                             if let ReferenceFrameKind::Transform { should_snap: true, .. } = info.kind {
                                 cs_scale_offset.offset = Vector2D::new(
-                                    quantize_device_offset(cs_scale_offset.offset.x).round(),
-                                    quantize_device_offset(cs_scale_offset.offset.y).round(),
+                                    round_device_pixel(cs_scale_offset.offset.x),
+                                    round_device_pixel(cs_scale_offset.offset.y),
                                 );
                             }
                         }
@@ -1120,4 +1131,27 @@ fn test_cst_perspective_relative_sticky() {
     // conjugated and this would fail.
     let world_transform = st.get_world_transform(ref_frame).into_transform().cast_unit();
     assert!(world_transform.approx_eq(&transform));
+}
+
+#[test]
+fn quantize_keeps_half_pixel_ties_stable() {
+    // A few ulps below n+0.5 is float noise on a fractional device-pixel
+    // boundary (CSS px * 1.5, or a scrolled origin round-trip). It must round
+    // the same way as the exact half, or cached tiles step by a pixel.
+    let near = quantize_device_offset(100.49994);
+    assert!(
+        (near - 100.5).abs() < 1.0e-5,
+        "quantized offset was {}",
+        near
+    );
+    assert_eq!(round_device_pixel(100.49994), 101.0);
+    assert_eq!(round_device_pixel(100.50006), 101.0);
+    // Exact halves keep half-away-from-zero, including the negative tie.
+    assert_eq!(quantize_device_offset(100.5), 100.5);
+    assert_eq!(round_device_pixel(-0.5), -1.0);
+    assert_eq!(round_device_pixel(-75.5), -76.0);
+    // Values clearly off the tie stay on their original side.
+    assert_eq!(round_device_pixel(100.4), 100.0);
+    assert_eq!(round_device_pixel(10.2), 10.0);
+    assert_eq!(round_device_pixel(0.4), 0.0);
 }
