@@ -631,10 +631,14 @@ nsresult nsLookAndFeel::NativeGetInt(IntID aID, int32_t& aResult) {
       aResult = 1;
       return NS_OK;
     case IntID::UseOverlayScrollbars:
-      aResult = StyleHint(QStyle::SH_ScrollBar_Transient, 0) ? 1 : 0;
+      // Always overlay on desktop Qt. Classic scrollbars take layout width and
+      // appear/disappear when ads/reflows cross the overflow threshold, which
+      // shifts the whole page by ~scrollbar width (or 1 CSS px under scale).
+      // GTK/Firefox-gtk effectively use overlay on modern desktops; match that.
+      aResult = 1;
       return NS_OK;
     case IntID::AllowOverlayScrollbarsOverlap:
-      aResult = 0;
+      aResult = 1;
       return NS_OK;
     case IntID::SkipNavigatingDisabledMenuItem:
       aResult = 1;

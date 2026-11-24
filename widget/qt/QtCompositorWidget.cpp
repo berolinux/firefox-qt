@@ -334,6 +334,9 @@ void QtCompositorWidget::NotifyClientSizeChanged(
     const LayoutDeviceIntSize& aClientSize) {
   {
     auto size = mClientSize.Lock();
+    if (*size == aClientSize) {
+      return;
+    }
     *size = aClientSize;
   }
   // Keep Wayland wl_egl_window in sync for EGL window surfaces.
