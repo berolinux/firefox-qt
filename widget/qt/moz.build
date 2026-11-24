@@ -125,8 +125,8 @@ if CONFIG["MOZ_ENABLE_DBUS"]:
         CFLAGS += CONFIG["MOZ_WAYLAND_CFLAGS"]
         CXXFLAGS += CONFIG["MOZ_WAYLAND_CFLAGS"]
 
-if CONFIG["MOZ_ENABLE_VAAPI"]:
-    DIRS += ["../gtk/vaapitest"]
+# Firefox 160 moved the VAAPI probe into toolkit/xre/gfxtest (program
+# "gfxtest"). widget/gtk/vaapitest no longer exists.
 
 # Qt moc-generated sources for Q_OBJECT types.
 moc_headers = [
