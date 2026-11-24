@@ -196,6 +196,13 @@ bool QtWindowBridge::event(QEvent* aEvent) {
       // render half-size and blurry on HiDPI.
       mWidget->OnScalePossiblyChanged();
       return QWindow::event(aEvent);
+    case QEvent::WindowActivate:
+      // Stacking/activation change (Wayland xdg_activation), not keyboard focus.
+      mWidget->OnWindowActivation(true);
+      break;
+    case QEvent::WindowDeactivate:
+      mWidget->OnWindowActivation(false);
+      break;
     default:
       break;
   }
@@ -265,6 +272,9 @@ void QtWindowBridge::focusOutEvent(QFocusEvent* aEvent) {
 
 void QtWindowBridge::keyPressEvent(QKeyEvent* aEvent) {
   if (mWidget) {
+    if (mWidget->ShouldAcceptActivate()) {
+      mWidget->NotePopupInteraction();
+    }
     mWidget->OnKeyEvent(aEvent, true);
   }
   QWindow::keyPressEvent(aEvent);
@@ -281,6 +291,7 @@ void QtWindowBridge::mousePressEvent(QMouseEvent* aEvent) {
   // Activate only windows that should own chrome focus. Popups, Media PiP and
   // alerts must not steal activation (tab goes inactive, media pauses, etc.).
   if (mWidget && mWidget->ShouldAcceptActivate()) {
+    mWidget->NotePopupInteraction();
     requestActivate();
   }
   if (mWidget) {
