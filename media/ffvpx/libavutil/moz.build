@@ -92,6 +92,17 @@ if not CONFIG['MOZ_FFVPX_AUDIOONLY']:
                 '/third_party/drm/drm/include',
                 '/third_party/drm/drm/include/libdrm',
             ]
+        # hwcontext_vulkan.c calls drmGetDevice/drmFreeDevice. GTK provides
+        # those symbols from mozdrm.cpp, which dlopens system libdrm. Qt
+        # enables Vulkan video without the VAAPI objects, so build the same
+        # shim instead of linking -ldrm into libmozavutil.
+        if CONFIG["MOZ_WIDGET_TOOLKIT"] == "qt":
+            SOURCES += [
+                '/third_party/drm/libdrm/mozdrm.cpp',
+            ]
+            if CONFIG['MOZ_SYSTEM_LIBDRM']:
+                SOURCES['/third_party/drm/libdrm/mozdrm.cpp'].flags += CONFIG['MOZ_LIBDRM_CFLAGS']
+            USE_LIBS += ['nspr']
     if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
         LOCAL_INCLUDES += ['/media/mozva']
         SOURCES += [

@@ -226,7 +226,7 @@ static void FillFontFromQFont(const QFont& aFont, nsString& aFontName,
   // Qt6 font weights are 1–1000 (Normal = 400).
   const int weight = static_cast<int>(aFont.weight());
   aStyle.weight = FontWeight::FromInt(std::clamp(weight, 1, 1000));
-  aStyle.stretch = FontStretch::NORMAL;
+  aStyle.width = FontWidth::NORMAL;
   aStyle.systemFont = true;
 }
 
@@ -892,7 +892,7 @@ bool nsLookAndFeel::NativeGetFont(FontID aID, nsString& aFontName,
     aStyle.size = 12.0;
     aStyle.style = FontSlantStyle::NORMAL;
     aStyle.weight = FontWeight::NORMAL;
-    aStyle.stretch = FontStretch::NORMAL;
+    aStyle.width = FontWidth::NORMAL;
     aStyle.systemFont = true;
     return true;
   }

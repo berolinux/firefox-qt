@@ -1086,8 +1086,7 @@ void nsWindow::ApplyWindowDecoration(BorderStyle aStyle) {
       (aStyle == BorderStyle::Default || aStyle == BorderStyle::All ||
        !!(aStyle & (BorderStyle::Title | BorderStyle::Border |
                     BorderStyle::ResizeH | BorderStyle::Menu |
-                    BorderStyle::Minimize | BorderStyle::Maximize |
-                    BorderStyle::Close)));
+                    BorderStyle::Minimize | BorderStyle::Maximize)));
 
   if (wantFrame) {
     flags &= ~Qt::FramelessWindowHint;

@@ -192,16 +192,18 @@ void ScreenHelperQt::RefreshScreens() {
       refreshRate = mHz;
     }
 
+    // Qt does not report HDR metadata. 80 nits matches the SDR default used
+    // by the GTK and Windows screen helpers.
     screens.AppendElement(MakeRefPtr<Screen>(
         rect, avail, 24, 24, uint32_t(refreshRate), contentsScale, cssScale,
-        dpi, Screen::IsPseudoDisplay::No, Screen::IsHDR::No));
+        dpi, Screen::IsPseudoDisplay::No, Screen::IsHDR::No, 80.0f, 80.0f));
   }
   if (screens.IsEmpty()) {
     LayoutDeviceIntRect rect(0, 0, 1920, 1080);
     screens.AppendElement(MakeRefPtr<Screen>(
         rect, rect, 24, 24, 0, DesktopToLayoutDeviceScale(1.0),
         CSSToLayoutDeviceScale(1.0), 96.0f, Screen::IsPseudoDisplay::No,
-        Screen::IsHDR::No));
+        Screen::IsHDR::No, 80.0f, 80.0f));
   }
   ScreenManager::Refresh(std::move(screens));
 }
