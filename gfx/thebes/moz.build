@@ -155,15 +155,11 @@ elif CONFIG["MOZ_WIDGET_TOOLKIT"] == "qt":
         "gfxFT2FontBase.h",
         "gfxPlatformQt.h",
     ]
-    EXPORTS.mozilla.gfx += [
-        "PrintTargetPDF.h",
-    ]
     SOURCES += [
         "gfxFcPlatformFontList.cpp",
         "gfxFT2FontBase.cpp",
         "gfxFT2Utils.cpp",
         "gfxPlatformQt.cpp",
-        "PrintTargetPDF.cpp",
     ]
     CXXFLAGS += CONFIG["MOZ_QT6_CFLAGS"]
 
